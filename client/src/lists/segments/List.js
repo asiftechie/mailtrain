@@ -1,24 +1,13 @@
 'use strict';
 
 import React, {Component} from 'react';
-import PropTypes
-    from 'prop-types';
+import PropTypes from 'prop-types';
 import {withTranslation} from '../../lib/i18n';
-import {
-    NavButton,
-    requiresAuthenticatedUser,
-    Title,
-    Toolbar,
-    withPageHelpers
-} from '../../lib/page';
+import {LinkButton, requiresAuthenticatedUser, Title, Toolbar, withPageHelpers} from '../../lib/page';
 import {withErrorHandling} from '../../lib/error-handling';
 import {Table} from '../../lib/table';
 import {Icon} from "../../lib/bootstrap-components";
-import {
-    tableAddDeleteButton,
-    tableRestActionDialogInit,
-    tableRestActionDialogRender
-} from "../../lib/modals";
+import {tableAddDeleteButton, tableRestActionDialogInit, tableRestActionDialogRender} from "../../lib/modals";
 import {withComponentMixins} from "../../lib/decorator-helpers";
 
 @withComponentMixins([
@@ -70,11 +59,11 @@ export default class List extends Component {
                 {tableRestActionDialogRender(this)}
                 {this.props.list.permissions.includes('manageSegments') &&
                     <Toolbar>
-                        <NavButton linkTo={`/lists/${this.props.list.id}/segments/create`} className="btn-primary" icon="plus" label={t('createSegment')}/>
+                        <LinkButton to={`/lists/${this.props.list.id}/segments/create`} className="btn-primary" icon="plus" label={t('createSegment')}/>
                     </Toolbar>
                 }
 
-                <Title>{t('segment')}</Title>
+                <Title>{t('segments')}</Title>
 
                 <Table ref={node => this.table = node} withHeader dataUrl={`rest/segments-table/${this.props.list.id}`} columns={columns} />
             </div>

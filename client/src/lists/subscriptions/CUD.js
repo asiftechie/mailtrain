@@ -1,38 +1,29 @@
 'use strict';
 
 import React, {Component} from 'react';
-import PropTypes
-    from 'prop-types';
+import PropTypes from 'prop-types';
 import {HTTPMethod} from '../../lib/axios';
 import {withTranslation} from '../../lib/i18n';
-import {
-    NavButton,
-    requiresAuthenticatedUser,
-    Title,
-    withPageHelpers
-} from '../../lib/page';
+import {LinkButton, requiresAuthenticatedUser, Title, withPageHelpers} from '../../lib/page';
 import {
     AlignedRow,
     Button,
     ButtonRow,
     CheckBox,
     Dropdown,
+    filterData,
     Form,
     FormSendMethod,
     InputField,
-    withForm
+    withForm,
+    withFormErrorHandlers
 } from '../../lib/form';
 import {withErrorHandling} from '../../lib/error-handling';
 import {RestActionModalDialog} from "../../lib/modals";
-import interoperableErrors
-    from '../../../../shared/interoperable-errors';
-import {SubscriptionStatus} from '../../../../shared/lists';
-import {
-    getFieldTypes,
-    getSubscriptionStatusLabels
-} from './helpers';
-import moment
-    from 'moment-timezone';
+import interoperableErrors from '../../../../shared/interoperable-errors';
+import {getFieldColumn, SubscriptionStatus} from '../../../../shared/lists';
+import {getFieldTypes, getSubscriptionStatusLabels} from './helpers';
+import moment from 'moment-timezone';
 import {withComponentMixins} from "../../lib/decorator-helpers";
 
 @withComponentMixins([
@@ -69,16 +60,32 @@ export default class CUD extends Component {
         entity: PropTypes.object
     }
 
+    getFormValuesMutator(data) {
+        data.status = data.status.toString();
+        data.tz = data.tz || '';
+
+        for (const fld of this.props.fieldsGrouped) {
+            this.fieldTypes[fld.type].assignFormData(fld, data);
+        }
+    }
+
+    submitFormValuesMutator(data) {
+        data.status = parseInt(data.status);
+        data.tz = data.tz || null;
+
+        const allowedCols = ['email', 'tz', 'is_test', 'status'];
+
+        for (const fld of this.props.fieldsGrouped) {
+            this.fieldTypes[fld.type].assignEntity(fld, data);
+            allowedCols.push(getFieldColumn(fld));
+        }
+
+        return filterData(data, allowedCols);
+    }
+
     componentDidMount() {
         if (this.props.entity) {
-            this.getFormValuesFromEntity(this.props.entity, data => {
-                data.status = data.status.toString();
-                data.tz = data.tz || '';
-
-                for (const fld of this.props.fieldsGrouped) {
-                    this.fieldTypes[fld.type].assignFormData(fld, data);
-                }
-            });
+            this.getFormValuesFromEntity(this.props.entity);
 
         } else {
             const data = {
@@ -115,7 +122,8 @@ export default class CUD extends Component {
         }
     }
 
-    async submitHandler() {
+    @withFormErrorHandlers
+    async submitHandler(submitAndLeave) {
         const t = this.props.t;
 
         let sendMethod, url;
@@ -131,17 +139,24 @@ export default class CUD extends Component {
             this.disableForm();
             this.setFormStatusMessage('info', t('saving'));
 
-            const submitSuccessful = await this.validateAndSendFormValuesToURL(sendMethod, url, data => {
-                data.status = parseInt(data.status);
-                data.tz = data.tz || null;
+            const submitResult = await this.validateAndSendFormValuesToURL(sendMethod, url);
 
-                for (const fld of this.props.fieldsGrouped) {
-                    this.fieldTypes[fld.type].assignEntity(fld, data);
+            if (submitResult) {
+                if (this.props.entity) {
+                    if (submitAndLeave) {
+                        this.navigateToWithFlashMessage(`/lists/${this.props.list.id}/subscriptions`, 'success', t('subscriptionUpdated'));
+                    } else {
+                        await this.getFormValuesFromURL(`rest/subscriptions/${this.props.list.id}/${this.props.entity.id}`);
+                        this.enableForm();
+                        this.setFormStatusMessage('success', t('subscriptionUpdated'));
+                    }
+                } else {
+                    if (submitAndLeave) {
+                        this.navigateToWithFlashMessage(`/lists/${this.props.list.id}/subscriptions`, 'success', t('subscriptionCreated'));
+                    } else {
+                        this.navigateToWithFlashMessage(`/lists/${this.props.list.id}/subscriptions/${submitResult}/edit`, 'success', t('subscriptionCreated'));
+                    }
                 }
-            });
-
-            if (submitSuccessful) {
-                this.navigateToWithFlashMessage(`/lists/${this.props.list.id}/subscriptions`, 'success', t('susbscriptionSaved'));
             } else {
                 this.enableForm();
                 this.setFormStatusMessage('warning', t('thereAreErrorsInTheFormPleaseFixThemAnd'));
@@ -223,7 +238,8 @@ export default class CUD extends Component {
                     }
                     <ButtonRow>
                         <Button type="submit" className="btn-primary" icon="check" label={t('save')}/>
-                        {isEdit && <NavButton className="btn-danger" icon="trash-alt" label={t('delete')} linkTo={`/lists/${this.props.list.id}/subscriptions/${this.props.entity.id}/delete`}/>}
+                        <Button type="submit" className="btn-primary" icon="check" label={t('saveAndLeave')} onClickAsync={async () => await this.submitHandler(true)}/>
+                        {isEdit && <LinkButton className="btn-danger" icon="trash-alt" label={t('delete')} to={`/lists/${this.props.list.id}/subscriptions/${this.props.entity.id}/delete`}/>}
                     </ButtonRow>
                 </Form>
             </div>

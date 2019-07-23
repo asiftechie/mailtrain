@@ -1,42 +1,29 @@
 'use strict';
 
 import React, {Component} from 'react';
-import PropTypes
-    from 'prop-types';
+import PropTypes from 'prop-types';
 import {withTranslation} from '../lib/i18n';
-import {
-    NavButton,
-    requiresAuthenticatedUser,
-    Title,
-    withPageHelpers
-} from '../lib/page';
+import {LinkButton, requiresAuthenticatedUser, Title, withPageHelpers} from '../lib/page';
 import {
     Button,
     ButtonRow,
     Fieldset,
+    filterData,
     Form,
     FormSendMethod,
     InputField,
     TableSelect,
     TableSelectMode,
     TextArea,
-    withForm
+    withForm,
+    withFormErrorHandlers
 } from '../lib/form';
-import axios
-    from '../lib/axios';
-import {
-    withAsyncErrorHandler,
-    withErrorHandling
-} from '../lib/error-handling';
-import moment
-    from 'moment';
-import {
-    NamespaceSelect,
-    validateNamespace
-} from '../lib/namespace';
+import axios from '../lib/axios';
+import {withAsyncErrorHandler, withErrorHandling} from '../lib/error-handling';
+import moment from 'moment';
+import {NamespaceSelect, validateNamespace} from '../lib/namespace';
 import {DeleteModalDialog} from "../lib/modals";
-import mailtrainConfig
-    from 'mailtrainConfig';
+import mailtrainConfig from 'mailtrainConfig';
 import {getUrl} from "../lib/urls";
 import {withComponentMixins} from "../lib/decorator-helpers";
 
@@ -82,13 +69,29 @@ export default class CUD extends Component {
         }
     }
 
+    getFormValuesMutator(data) {
+        for (const key in data.params) {
+            data[`param_${key}`] = data.params[key];
+        }
+    }
+
+    submitFormValuesMutator(data) {
+        const params = {};
+
+        for (const spec of data.user_fields) {
+            const fldId = `param_${spec.id}`;
+            params[spec.id] = data[fldId];
+        }
+
+        data.params = params;
+
+        return filterData(data, ['name', 'description', 'report_template', 'params', 'namespace']);
+    }
+
     componentDidMount() {
         if (this.props.entity) {
-            this.getFormValuesFromEntity(this.props.entity, data => {
-                for (const key in data.params) {
-                    data[`param_${key}`] = data.params[key];
-                }
-            });
+            this.getFormValuesFromEntity(this.props.entity);
+
         } else {
             this.populateFormValues({
                 name: '',
@@ -145,7 +148,8 @@ export default class CUD extends Component {
         validateNamespace(t, state);
     }
 
-    async submitHandler() {
+    @withFormErrorHandlers
+    async submitHandler(submitAndLeave) {
         const t = this.props.t;
 
         if (this.getFormValue('report_template') && !this.getFormValue('user_fields')) {
@@ -165,21 +169,24 @@ export default class CUD extends Component {
         this.disableForm();
         this.setFormStatusMessage('info', t('saving'));
 
-        const submitSuccessful = await this.validateAndSendFormValuesToURL(sendMethod, url, data => {
-            const params = {};
+        const submitResult = await this.validateAndSendFormValuesToURL(sendMethod, url);
 
-            for (const spec of data.user_fields) {
-                const fldId = `param_${spec.id}`;
-                params[spec.id] = data[fldId];
-                delete data[fldId];
+        if (submitResult) {
+            if (this.props.entity) {
+                if (submitAndLeave) {
+                    this.navigateToWithFlashMessage('/reports', 'success', t('reportUpdated'));
+                } else {
+                    await this.getFormValuesFromURL(`rest/reports/${this.props.entity.id}`);
+                    this.enableForm();
+                    this.setFormStatusMessage('success', t('reportUpdated'));
+                }
+            } else {
+                if (submitAndLeave) {
+                    this.navigateToWithFlashMessage('/reports', 'success', t('reportCreated'));
+                } else {
+                    this.navigateToWithFlashMessage(`/reports/${submitResult}/edit`, 'success', t('reportCreated'));
+                }
             }
-
-            delete data.user_fields;
-            data.params = params;
-        });
-
-        if (submitSuccessful) {
-            this.navigateToWithFlashMessage('/reports', 'success', t('reportSaved'));
         } else {
             this.enableForm();
             this.setFormStatusMessage('warning', t('thereAreErrorsInTheFormPleaseFixThemAnd'));
@@ -275,8 +282,9 @@ export default class CUD extends Component {
 
                     <ButtonRow>
                         <Button type="submit" className="btn-primary" icon="check" label={t('save')}/>
+                        <Button type="submit" className="btn-primary" icon="check" label={t('saveAndLeave')} onClickAsync={async () => await this.submitHandler(true)}/>
                         {canDelete &&
-                            <NavButton className="btn-danger" icon="trash-alt" label={t('delete')} linkTo={`/reports/${this.props.entity.id}/delete`}/>
+                            <LinkButton className="btn-danger" icon="trash-alt" label={t('delete')} to={`/reports/${this.props.entity.id}/delete`}/>
                         }
                     </ButtonRow>
                 </Form>

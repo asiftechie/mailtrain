@@ -8,6 +8,10 @@ const fs = require('fs-extra-promise');
 const tryRequire = require('try-require');
 const posix = tryRequire('posix');
 
+// process.getuid and process.getgid are not supported on Windows 
+process.getuid = process.getuid || (() => 100);
+process.getgid = process.getuid || (() => 100);
+
 function _getConfigUidGid(userKey, groupKey, defaultUid, defaultGid) {
     let uid = defaultUid;
     let gid = defaultGid;
@@ -46,13 +50,17 @@ function getConfigROUidGid() {
 
 function ensureMailtrainOwner(file, callback) {
     const ids = getConfigUidGid();
-    fs.chown(file, ids.uid, ids.gid, callback);
+
+    if (callback) {
+        fs.chown(file, ids.uid, ids.gid, callback);
+    } else {
+        return fs.chownAsync(file, ids.uid, ids.gid);
+    }
 }
 
 async function ensureMailtrainDir(dir) {
-    const ids = getConfigUidGid();
-    await fs.ensureDir(dir);
-    await fs.chownAsync(dir, ids.uid, ids.gid);
+    await fs.ensureDirAsync(dir);
+    await ensureMailtrainOwner(dir);
 }
 
 function dropRootPrivileges() {

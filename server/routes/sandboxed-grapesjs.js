@@ -33,7 +33,7 @@ users.registerRestrictedAccessTokenMethod('grapesjs', async ({entityTypeId, enti
 });
 
 
-function getRouter(appType) {
+async function getRouter(appType) {
     const router = routerFactory.create();
     
     if (appType === AppType.SANDBOXED) {
@@ -45,7 +45,7 @@ function getRouter(appType) {
                 reactCsrfToken: req.csrfToken(),
                 mailtrainConfig: JSON.stringify(mailtrainConfig),
                 scriptFiles: [
-                    getSandboxUrl('mailtrain/grapesjs-root.js')
+                    getSandboxUrl('client/grapesjs-root.js')
                 ],
                 publicPath: getSandboxUrl()
             });

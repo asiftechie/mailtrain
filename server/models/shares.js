@@ -2,7 +2,7 @@
 
 const knex = require('../lib/knex');
 const config = require('config');
-const { enforce } = require('../lib/helpers');
+const { enforce, castToInteger } = require('../lib/helpers');
 const dtHelpers = require('../lib/dt-helpers');
 const entitySettings = require('../lib/entity-settings');
 const interoperableErrors = require('../../shared/interoperable-errors');
@@ -25,8 +25,10 @@ async function listByEntityDTAjax(context, entityTypeId, entityId, params) {
             builder => builder
                 .from(entityType.sharesTable)
                 .innerJoin('users', entityType.sharesTable + '.user', 'users.id')
-                .innerJoin('generated_role_names', 'generated_role_names.role', 'users.role')
-                .where('generated_role_names.entity_type', entityTypeId)
+                .innerJoin('generated_role_names', {
+                    'generated_role_names.role': entityType.sharesTable + '.role',
+                    'generated_role_names.entity_type': knex.raw('?', [entityTypeId])
+                })
                 .where(`${entityType.sharesTable}.entity`, entityId),
             ['users.username', 'users.name', 'generated_role_names.name', 'users.id', entityType.sharesTable + '.auto']
         );
@@ -170,54 +172,43 @@ async function rebuildPermissionsTx(tx, restriction) {
     }
 
 
-    // Reset root and own namespace shares as per the user roles
-    const usersWithRoleInOwnNamespaceQuery = tx('users')
-        .leftJoin(namespaceEntityType.sharesTable, {
-            'users.id': `${namespaceEntityType.sharesTable}.user`,
-            'users.namespace': `${namespaceEntityType.sharesTable}.entity`
-        })
-        .select(['users.id', 'users.namespace', 'users.role as userRole', `${namespaceEntityType.sharesTable}.role`]);
+    // Reset root, own and shared namespaces shares as per the user roles
+    const usersAutoSharesQry = tx('users')
+        .select(['users.id', 'users.role', 'users.namespace']);
     if (restriction.userId) {
-        usersWithRoleInOwnNamespaceQuery.where('users.id', restriction.userId);
+        usersAutoSharesQry.where('users.id', restriction.userId);
     }
-    const usersWithRoleInOwnNamespace = await usersWithRoleInOwnNamespaceQuery;
+    const usersAutoShares = await usersAutoSharesQry;
 
-    for (const user of usersWithRoleInOwnNamespace) {
-        const roleConf = config.roles.global[user.userRole];
+    for (const user of usersAutoShares) {
+        const roleConf = config.roles.global[user.role];
 
         if (roleConf) {
-            const desiredRole = roleConf.ownNamespaceRole;
-            if (desiredRole && user.role !== desiredRole) {
-                await tx(namespaceEntityType.sharesTable).where({ user: user.id, entity: user.namespace }).del();
-                await tx(namespaceEntityType.sharesTable).insert({ user: user.id, entity: user.namespace, role: desiredRole, auto: true });
+            const desiredRoles = new Map();
+
+            if (roleConf.sharedNamespaces) {
+                for (const shrKey in roleConf.sharedNamespaces) {
+                    const shrRole = roleConf.sharedNamespaces[shrKey];
+                    const shrNsId = castToInteger(shrKey);
+
+                    desiredRoles.set(shrNsId, shrRole);
+                }
+            }
+
+            if (roleConf.ownNamespaceRole) {
+                desiredRoles.set(user.namespace, roleConf.ownNamespaceRole);
+            }
+
+            if (roleConf.rootNamespaceRole) {
+                desiredRoles.set(getGlobalNamespaceId(), roleConf.rootNamespaceRole);
+            }
+
+            for (const [nsId, role] of desiredRoles.entries()) {
+                await tx(namespaceEntityType.sharesTable).where({ user: user.id, entity: nsId }).del();
+                await tx(namespaceEntityType.sharesTable).insert({ user: user.id, entity: nsId, role: role, auto: true });
             }
         }
     }
-
-
-    const usersWithRoleInRootNamespaceQuery = tx('users')
-        .leftJoin(namespaceEntityType.sharesTable, {
-            'users.id': `${namespaceEntityType.sharesTable}.user`,
-            [`${namespaceEntityType.sharesTable}.entity`]: getGlobalNamespaceId()
-        })
-        .select(['users.id', 'users.role as userRole', `${namespaceEntityType.sharesTable}.role`]);
-    if (restriction.userId) {
-        usersWithRoleInRootNamespaceQuery.andWhere('users.id', restriction.userId);
-    }
-    const usersWithRoleInRootNamespace = await usersWithRoleInRootNamespaceQuery;
-
-    for (const user of usersWithRoleInRootNamespace) {
-        const roleConf = config.roles.global[user.userRole];
-
-        if (roleConf) {
-            const desiredRole = roleConf.rootNamespaceRole;
-            if (desiredRole && user.role !== desiredRole) {
-                await tx(namespaceEntityType.sharesTable).where({ user: user.id, entity: getGlobalNamespaceId() }).del();
-                await tx(namespaceEntityType.sharesTable).insert({ user: user.id, entity: getGlobalNamespaceId(), role: desiredRole, auto: 1 });
-            }
-        }
-    }
-
 
 
     // Build the map of all namespaces
@@ -331,8 +322,6 @@ async function rebuildPermissionsTx(tx, restriction) {
             }
         }
         const entities = await entitiesQuery;
-
-        // TODO - process restriction.parentId
 
         const parentEntities = new Map();
         let nonChildEntities;
@@ -541,30 +530,7 @@ async function _checkPermissionTx(tx, context, entityTypeId, entityId, requiredO
         requiredOperations = [ requiredOperations ];
     }
 
-    if (context.user.restrictedAccessHandler) {
-        const originalRequiredOperations = requiredOperations;
-        if (context.user.restrictedAccessHandler.permissions) {
-            const entityPerms = context.user.restrictedAccessHandler.permissions[entityTypeId];
-
-            if (!entityPerms) {
-                requiredOperations = [];
-            } else if (entityPerms === true) {
-                // no change to require operations
-            } else if (entityPerms instanceof Set) {
-                requiredOperations = requiredOperations.filter(perm => entityPerms.has(perm));
-            } else {
-                const allowedPerms = entityPerms[entityId];
-                if (allowedPerms) {
-                    requiredOperations = requiredOperations.filter(perm => allowedPerms.has(perm));
-                } else {
-                    requiredOperations = [];
-                }
-            }
-        } else {
-            requiredOperations = [];
-        }
-        log.verbose('check permissions with restrictedAccessHandler --  entityTypeId: ' + entityTypeId + '  entityId: ' + entityId + '  requiredOperations: [' + originalRequiredOperations + '] -> [' + requiredOperations + ']');
-    }
+    requiredOperations = filterPermissionsByRestrictedAccessHandler(context, entityTypeId, entityId, requiredOperations, 'checkPermissions');
 
     if (requiredOperations.length === 0) {
         return false;
@@ -686,8 +652,58 @@ async function getPermissionsTx(tx, context, entityTypeId, entityId) {
         .where('entity', entityId)
         .where('user', context.user.id);
 
-    return rows.map(x => x.operation);
+    const operations = rows.map(x => x.operation);
+    return filterPermissionsByRestrictedAccessHandler(context, entityTypeId, entityId, operations, 'getPermissions');
 }
+
+// If entityId is null, it means that we require that restrictedAccessHandler does not differentiate based on entityId. This is used in ajaxListWithPermissionsTx.
+function filterPermissionsByRestrictedAccessHandler(context, entityTypeId, entityId, permissions, operationMsg) {
+    if (context.user.restrictedAccessHandler) {
+        const originalOperations = permissions;
+        if (context.user.restrictedAccessHandler.permissions) {
+            const entityPerms = context.user.restrictedAccessHandler.permissions[entityTypeId];
+
+            if (!entityPerms) {
+                permissions = [];
+            } else if (entityPerms === true) {
+                // no change to operations
+            } else if (entityPerms instanceof Set) {
+                permissions = permissions.filter(perm => entityPerms.has(perm));
+            } else {
+                if (entityId) {
+                    const allowedPerms = entityPerms[entityId];
+                    if (allowedPerms) {
+                        permissions = permissions.filter(perm => allowedPerms.has(perm));
+                    } else {
+                        const allowedPerms = entityPerms['default'];
+                        if (allowedPerms) {
+                            permissions = permissions.filter(perm => allowedPerms.has(perm));
+                        } else {
+                            permissions = [];
+                        }
+                    }
+                } else {
+                    const allowedPerms = entityPerms['default'];
+                    if (allowedPerms) {
+                        permissions = permissions.filter(perm => allowedPerms.has(perm));
+                    } else {
+                        permissions = [];
+                    }
+                }
+            }
+        } else {
+            permissions = [];
+        }
+        log.verbose(operationMsg + ' with restrictedAccessHandler --  entityTypeId: ' + entityTypeId + '  entityId: ' + entityId + '  operations: [' + originalOperations + '] -> [' + permissions + ']');
+    }
+
+    return permissions;
+}
+
+function isAccessibleByRestrictedAccessHandler(context, entityTypeId, entityId, permissions, operationMsg) {
+    return filterPermissionsByRestrictedAccessHandler(context, entityTypeId, entityId, permissions, operationMsg).length > 0;
+}
+
 
 module.exports.listByEntityDTAjax = listByEntityDTAjax;
 module.exports.listByUserDTAjax = listByUserDTAjax;
@@ -710,3 +726,5 @@ module.exports.throwPermissionDenied = throwPermissionDenied;
 module.exports.regenerateRoleNamesTable = regenerateRoleNamesTable;
 module.exports.getGlobalPermissions = getGlobalPermissions;
 module.exports.getPermissionsTx = getPermissionsTx;
+module.exports.filterPermissionsByRestrictedAccessHandler = filterPermissionsByRestrictedAccessHandler;
+module.exports.isAccessibleByRestrictedAccessHandler = isAccessibleByRestrictedAccessHandler;

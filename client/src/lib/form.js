@@ -3,37 +3,22 @@
 import React, {Component} from 'react';
 import {withTranslation} from './i18n';
 import axios, {HTTPMethod} from './axios';
-import Immutable
-    from 'immutable';
-import PropTypes
-    from 'prop-types';
-import interoperableErrors
-    from '../../../shared/interoperable-errors';
+import Immutable from 'immutable';
+import PropTypes from 'prop-types';
+import interoperableErrors from '../../../shared/interoperable-errors';
 import {withPageHelpers} from './page'
-import {
-    ParentErrorHandlerContext,
-    withAsyncErrorHandler,
-    withErrorHandling
-} from './error-handling';
-import {
-    TreeSelectMode,
-    TreeTable
-} from './tree';
-import {
-    Table,
-    TableSelectMode
-} from './table';
-import {
-    Button,
-    Icon
-} from "./bootstrap-components";
-import ACEEditorRaw
-    from 'react-ace';
+import {withAsyncErrorHandler, withErrorHandling} from './error-handling';
+import {TreeSelectMode, TreeTable} from './tree';
+import {Table, TableSelectMode} from './table';
+import {Button} from "./bootstrap-components";
+import {SketchPicker} from 'react-color';
+import deepEqual from "fast-deep-equal";
+
+import ACEEditorRaw from 'react-ace';
 import 'brace/theme/github';
 import 'brace/ext/searchbox';
 
-import DayPicker
-    from 'react-day-picker';
+import DayPicker from 'react-day-picker';
 import 'react-day-picker/lib/style.css';
 import {
     birthdayYear,
@@ -46,15 +31,10 @@ import {
     parseDate
 } from '../../../shared/date';
 
-import styles
-    from "./styles.scss";
-import moment
-    from "moment";
+import styles from "./styles.scss";
+import moment from "moment";
 import {getUrl} from "./urls";
-import {
-    createComponentMixin,
-    withComponentMixins
-} from "./decorator-helpers";
+import {createComponentMixin, withComponentMixins} from "./decorator-helpers";
 
 
 const FormState = {
@@ -70,11 +50,20 @@ export const FormStateOwnerContext = React.createContext(null);
 const withFormStateOwner = createComponentMixin([{context: FormStateOwnerContext, propName: 'formStateOwner'}], [], (TargetClass, InnerClass) => {
     InnerClass.prototype.getFormStateOwner = function() {
         return this.props.formStateOwner;
-    }
+    };
 
-    return TargetClass;
+    return {};
 });
 
+export function withFormErrorHandlers(target, name, descriptor) {
+    const asyncFn = descriptor.value;
+
+    descriptor.value = async function(...args) {
+        await this.formHandleErrors(async () => await asyncFn.apply(this, args));
+    };
+
+    return descriptor;
+}
 
 @withComponentMixins([
     withTranslation,
@@ -82,11 +71,28 @@ const withFormStateOwner = createComponentMixin([{context: FormStateOwnerContext
     withPageHelpers
 ])
 class Form extends Component {
+    constructor(props) {
+        super(props);
+
+        this.beforeUnloadHandlers = {
+            handler: () => this.props.stateOwner.isFormChanged(),
+            handlerAsync: async () => await this.props.stateOwner.isFormChangedAsync()
+        };
+    }
+
     static propTypes = {
         stateOwner: PropTypes.object.isRequired,
         onSubmitAsync: PropTypes.func,
         format: PropTypes.string,
         noStatus: PropTypes.bool
+    }
+
+    componentDidMount() {
+        this.registerBeforeUnloadHandlers(this.beforeUnloadHandlers);
+    }
+
+    componentWillUnmount() {
+        this.deregisterBeforeUnloadHandlers(this.beforeUnloadHandlers);
     }
 
     @withAsyncErrorHandler
@@ -98,7 +104,7 @@ class Form extends Component {
         evt.preventDefault();
 
         if (this.props.onSubmitAsync) {
-            await owner.formHandleChangedError(async () => await this.props.onSubmitAsync(evt));
+            await this.props.onSubmitAsync();
         }
     }
 
@@ -130,8 +136,8 @@ class Form extends Component {
                             {props.children}
                         </fieldset>
                         {!props.noStatus && statusMessageText &&
-                        <AlignedRow htmlId="form-status-message">
-                            <p className={`alert alert-${statusMessageSeverity} ${styles.formStatus}`} role="alert">{statusMessageText}</p>
+                        <AlignedRow format={props.format} htmlId="form-status-message">
+                            <div className={`alert alert-${statusMessageSeverity} ${styles.formStatus}`} role="alert">{statusMessageText}</div>
                         </AlignedRow>
                         }
                     </FormStateOwnerContext.Provider>
@@ -147,7 +153,7 @@ class Form extends Component {
 class Fieldset extends Component {
     static propTypes = {
         id: PropTypes.string,
-        label: PropTypes.string,
+        label: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
         help: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
         flat: PropTypes.bool,
         className: PropTypes.string
@@ -280,6 +286,11 @@ class StaticField extends Component {
         const htmlId = 'form_' + id;
 
         let className = 'form-control';
+
+        if (props.withValidation) {
+            className = owner.addFormValidationClass(className, id);
+        }
+
         if (props.className) {
             className += ' ' + props.className;
         }
@@ -334,10 +345,11 @@ class InputField extends Component {
 class CheckBox extends Component {
     static propTypes = {
         id: PropTypes.string.isRequired,
-        text: PropTypes.string.isRequired,
+        text: PropTypes.string,
         label: PropTypes.string,
         help: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
-        format: PropTypes.string
+        format: PropTypes.string,
+        className: PropTypes.string
     }
 
     render() {
@@ -346,12 +358,12 @@ class CheckBox extends Component {
         const id = this.props.id;
         const htmlId = 'form_' + id;
 
-        const className = owner.addFormValidationClass('form-check-input', id);
+        const inputClassName = owner.addFormValidationClass('form-check-input', id);
 
         return wrapInput(id, htmlId, owner, props.format, '', props.label, props.help,
-            <div className="form-group form-check my-2">
-                <input className={className} type="checkbox" checked={owner.getFormValue(id)} id={htmlId} aria-describedby={htmlId + '_help'} onChange={evt => owner.updateFormValue(id, !owner.getFormValue(id))}/>
-                <label className="form-check-label" htmlFor={htmlId}>{props.text}</label>
+            <div className={`form-group form-check my-2 ${this.props.className}`}>
+                <input className={inputClassName} type="checkbox" checked={owner.getFormValue(id)} id={htmlId} aria-describedby={htmlId + '_help'} onChange={evt => owner.updateFormValue(id, !owner.getFormValue(id))}/>
+                <label className={styles.checkboxText} htmlFor={htmlId}>{props.text}</label>
             </div>
         );
     }
@@ -495,6 +507,66 @@ class TextArea extends Component {
 
 
 @withComponentMixins([
+    withFormStateOwner
+])
+class ColorPicker extends Component {
+    constructor(props) {
+        super(props);
+
+        this.state = {
+            opened: false
+        };
+    }
+
+    static propTypes = {
+        id: PropTypes.string.isRequired,
+        label: PropTypes.string.isRequired,
+        help: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
+    }
+
+    toggle() {
+        this.setState({
+            opened: !this.state.opened
+        });
+    }
+
+    selected(value) {
+        const owner = this.getFormStateOwner();
+        const id = this.props.id;
+
+        this.setState({
+            opened: false
+        });
+
+        owner.updateFormValue(id, value.rgb);
+    }
+
+    render() {
+        const props = this.props;
+        const owner = this.getFormStateOwner();
+        const id = this.props.id;
+        const htmlId = 'form_' + id;
+        const t = props.t;
+        const color = owner.getFormValue(id);
+
+        return wrapInput(id, htmlId, owner, props.format, '', props.label, props.help,
+            <div>
+                <div className="input-group">
+                    <div className={styles.colorPickerSwatchWrapper} onClick={::this.toggle}>
+                        <div className={styles.colorPickerSwatchColor} style={{background: `rgba(${ color.r }, ${ color.g }, ${ color.b }, ${ color.a })`}}/>
+                    </div>
+                </div>
+                {this.state.opened &&
+                <div className={styles.colorPickerWrapper}>
+                    <SketchPicker color={color} onChange={::this.selected} />
+                </div>
+                }
+            </div>
+        );
+    }
+}
+
+@withComponentMixins([
     withTranslation,
     withFormStateOwner
 ])
@@ -598,7 +670,7 @@ class DatePicker extends Component {
         const className = owner.addFormValidationClass('form-control', id);
 
         return wrapInput(id, htmlId, owner, props.format, '', props.label, props.help,
-            <div>
+            <>
                 <div className="input-group">
                     <input type="text" value={selectedDateStr} placeholder={placeholder} id={htmlId} className={className} aria-describedby={htmlId + '_help'} onChange={evt => owner.updateFormValue(id, evt.target.value)}/>
                     <div className="input-group-append">
@@ -617,7 +689,7 @@ class DatePicker extends Component {
                     />
                 </div>
                 }
-            </div>
+            </>
         );
     }
 }
@@ -897,37 +969,6 @@ class ACEEditor extends Component {
     }
 }
 
-/* Excluded. It's not very useful and just eats a lot of space in the resulting JS.
-
-@withComponentMixins([
-    withFormStateOwner
-])
-class CKEditor extends Component {
-    static propTypes = {
-        id: PropTypes.string.isRequired,
-        label: PropTypes.string,
-        help: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
-        height: PropTypes.string
-    }
-
-    render() {
-        const props = this.props;
-        const owner = this.getFormStateOwner();
-        const id = this.props.id;
-        const htmlId = 'form_' + id;
-
-        return wrapInput(id, htmlId, owner, props.format, '', props.label, props.help,
-            <CKEditorRaw
-                onChange={(event, editor) => owner.updateFormValue(id, editor.getData())}
-                onInit={ editor => {
-                    editor.ui.view.editable.editableElement.style.height = props.height;
-                } }
-                data={owner.getFormValue(id)}
-            />
-        );
-    }
-}
- */
 
 const withForm = createComponentMixin([], [], (TargetClass, InnerClass) => {
     const proto = InnerClass.prototype;
@@ -938,8 +979,22 @@ const withForm = createComponentMixin([], [], (TargetClass, InnerClass) => {
         isDisabled: false,
         statusMessageText: '',
         data: Immutable.Map(),
+        savedData: Immutable.Map(),
         isServerValidationRunning: false
     });
+
+    const getSaveData = (self, formStateData) => {
+        let data = formStateData.map(attr => attr.get('value')).toJS();
+
+        if (self.submitFormValuesMutator) {
+            const newData = self.submitFormValuesMutator(data, false);
+            if (newData !== undefined) {
+                data = newData;
+            }
+        }
+
+        return data;
+    };
 
     // formValidateResolve is called by "validateForm" once client receives validation response from server that does not
     // trigger another server validation
@@ -963,7 +1018,12 @@ const withForm = createComponentMixin([], [], (TargetClass, InnerClass) => {
             let payloadNotEmpty = false;
 
             for (const attr of settings.serverValidation.extra || []) {
-                payload[attr] = mutState.getIn(['data', attr, 'value']);
+                if (typeof attr === 'string') {
+                    payload[attr] = mutState.getIn(['data', attr, 'value']);
+                } else {
+                    const data = mutState.get('data').map(attr => attr.get('value')).toJS();
+                    payload[attr.key] = attr.data(data);
+                }
             }
 
             for (const attr of settings.serverValidation.changed) {
@@ -1032,7 +1092,10 @@ const withForm = createComponentMixin([], [], (TargetClass, InnerClass) => {
     proto.initForm = function(settings) {
         const state = this.state || {};
         state.formState = cleanFormState;
-        state.formSettings = settings || {};
+        state.formSettings = {
+            leaveConfirmation: true,
+            ...(settings || {})
+        };
         this.state = state;
     };
 
@@ -1042,20 +1105,22 @@ const withForm = createComponentMixin([], [], (TargetClass, InnerClass) => {
         });
     };
 
-    proto.getFormValuesFromEntity = function(entity, mutator) {
+    proto.getFormValuesFromEntity = function(entity) {
+        const settings = this.state.formSettings;
         const data = Object.assign({}, entity);
 
         data.originalHash = data.hash;
         delete data.hash;
 
-        if (mutator) {
-            mutator(data);
+        if (this.getFormValuesMutator) {
+            this.getFormValuesMutator(data, this.getFormValues());
         }
 
         this.populateFormValues(data);
     };
 
-    proto.getFormValuesFromURL = async function(url, mutator) {
+    proto.getFormValuesFromURL = async function(url) {
+        const settings = this.state.formSettings;
         setTimeout(() => {
             this.setState(previousState => {
                 if (previousState.formState.get('state') === FormState.Loading) {
@@ -1073,8 +1138,8 @@ const withForm = createComponentMixin([], [], (TargetClass, InnerClass) => {
         data.originalHash = data.hash;
         delete data.hash;
 
-        if (mutator) {
-            const newData = mutator(data);
+        if (this.getFormValuesMutator) {
+            const newData = this.getFormValuesMutator(data, this.getFormValues());
 
             if (newData !== undefined) {
                 data = newData;
@@ -1084,20 +1149,41 @@ const withForm = createComponentMixin([], [], (TargetClass, InnerClass) => {
         this.populateFormValues(data);
     };
 
-    proto.validateAndSendFormValuesToURL = async function(method, url, mutator) {
+    proto.validateAndSendFormValuesToURL = async function(method, url) {
+        const settings = this.state.formSettings;
         await this.waitForFormServerValidated();
 
         if (this.isFormWithoutErrors()) {
+            if (settings.getPreSubmitUpdater) {
+                const preSubmitUpdater = await settings.getPreSubmitUpdater();
+
+                await new Promise((resolve, reject) => {
+                    this.setState(previousState => ({
+                        formState: previousState.formState.withMutations(mutState => {
+                            mutState.update('data', stateData => stateData.withMutations(preSubmitUpdater));
+                        })
+                    }), resolve);
+                });
+            }
+
             let data = this.getFormValues();
 
-            if (mutator) {
-                const newData = mutator(data);
+            if (this.submitFormValuesMutator) {
+                const newData = this.submitFormValuesMutator(data, true);
                 if (newData !== undefined) {
                     data = newData;
                 }
             }
 
             const response = await axios.method(method, getUrl(url), data);
+
+            if (settings.leaveConfirmation) {
+                await new Promise((resolve, reject) => {
+                    this.setState(previousState => ({
+                        formState: previousState.formState.set('savedData', getSaveData(this, previousState.formState.get('data')))
+                    }), resolve);
+                });
+            }
 
             return response.data || true;
 
@@ -1109,6 +1195,8 @@ const withForm = createComponentMixin([], [], (TargetClass, InnerClass) => {
 
 
     proto.populateFormValues = function(data) {
+        const settings = this.state.formSettings;
+
         this.setState(previousState => ({
             formState: previousState.formState.withMutations(mutState => {
                 mutState.set('state', FormState.Ready);
@@ -1120,6 +1208,10 @@ const withForm = createComponentMixin([], [], (TargetClass, InnerClass) => {
                         }));
                     }
                 }));
+
+                if (settings.leaveConfirmation) {
+                    mutState.set('savedData', getSaveData(this, mutState.get('data')));
+                }
 
                 validateFormState(this, mutState);
             })
@@ -1225,6 +1317,7 @@ const withForm = createComponentMixin([], [], (TargetClass, InnerClass) => {
     };
 
     proto.getFormValues = function(name) {
+        if (!this.state || !this.state.formState) return undefined;
         return this.state.formState.get('data').map(attr => attr.get('value')).toJS();
     };
 
@@ -1244,6 +1337,48 @@ const withForm = createComponentMixin([], [], (TargetClass, InnerClass) => {
         return this.state.formState.get('state') === FormState.Ready;
     };
 
+    const _isFormChanged = self => {
+        const currentData = getSaveData(self, self.state.formState.get('data'));
+        const savedData = self.state.formState.get('savedData');
+
+        return !deepEqual(currentData, savedData);
+    };
+
+    proto.isFormChanged = function() {
+        const settings = this.state.formSettings;
+
+        if (!settings.leaveConfirmation) return false;
+
+        if (settings.getPreSubmitUpdater) {
+            // getPreSubmitUpdater is an async function. We cannot do anything async here. So to be on the safe side,
+            // we simply assume that the form has been changed. 
+            return true;
+        }
+
+        return _isFormChanged(this);
+    };
+
+    proto.isFormChangedAsync = async function() {
+        const settings = this.state.formSettings;
+
+        if (!settings.leaveConfirmation) return false;
+
+        if (settings.getPreSubmitUpdater) {
+            const preSubmitUpdater = await settings.getPreSubmitUpdater();
+
+            await new Promise((resolve, reject) => {
+                this.setState(previousState => ({
+                    formState: previousState.formState.withMutations(mutState => {
+                        mutState.update('data', stateData => stateData.withMutations(preSubmitUpdater));
+                    })
+                }), resolve);
+            });
+        }
+
+        return _isFormChanged(this);
+
+    };
+    
     proto.isFormValidationShown = function() {
         return this.state.formState.get('isValidationShown');
     };
@@ -1322,7 +1457,7 @@ const withForm = createComponentMixin([], [], (TargetClass, InnerClass) => {
         return this.state.formState.get('isDisabled');
     };
 
-    proto.formHandleChangedError = async function(fn) {
+    proto.formHandleErrors = async function(fn) {
         const t = this.props.t;
         try {
             await fn();
@@ -1364,9 +1499,26 @@ const withForm = createComponentMixin([], [], (TargetClass, InnerClass) => {
         }
     };
 
-    return TargetClass;
+    return {};
 });
 
+function filterData(obj, allowedKeys) {
+    const result = {};
+    for (const key in obj) {
+        if (key === 'originalHash') {
+            result[key] = obj[key];
+        } else {
+            for (const allowedKey of allowedKeys) {
+                if ((typeof allowedKey === 'function' && allowedKey(key)) || allowedKey === key) {
+                    result[key] = obj[key];
+                    break;
+                }
+            }
+        }
+    }
+
+    return result;
+}
 
 export {
     withForm,
@@ -1378,6 +1530,7 @@ export {
     CheckBoxGroup,
     RadioGroup,
     TextArea,
+    ColorPicker,
     DatePicker,
     Dropdown,
     AlignedRow,
@@ -1387,6 +1540,6 @@ export {
     TableSelect,
     TableSelectMode,
     ACEEditor,
-    CKEditor,
-    FormSendMethod
+    FormSendMethod,
+    filterData
 }

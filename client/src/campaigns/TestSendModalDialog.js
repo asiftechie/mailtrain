@@ -2,22 +2,13 @@
 
 import React, {Component} from 'react';
 import {withTranslation} from '../lib/i18n';
-import PropTypes
-    from 'prop-types';
+import PropTypes from 'prop-types';
 import {ModalDialog} from "../lib/bootstrap-components";
-import {
-    requiresAuthenticatedUser,
-    withPageHelpers
-} from "../lib/page";
-import {
-    Form,
-    TableSelect,
-    withForm
-} from "../lib/form";
+import {requiresAuthenticatedUser, withPageHelpers} from "../lib/page";
+import {Form, TableSelect, withForm} from "../lib/form";
 import {withErrorHandling} from "../lib/error-handling";
 import {getMailerTypes} from "../send-configurations/helpers";
-import axios
-    from '../lib/axios';
+import axios from '../lib/axios';
 import {getUrl} from '../lib/urls';
 import {withComponentMixins} from "../lib/decorator-helpers";
 
@@ -35,7 +26,9 @@ export class TestSendModalDialog extends Component {
 
         this.mailerTypes = getMailerTypes(props.t);
 
-        this.initForm();
+        this.initForm({
+            leaveConfirmation: false
+        });
     }
 
     static propTypes = {
@@ -115,8 +108,8 @@ export class TestSendModalDialog extends Component {
 
         return (
             <ModalDialog hidden={!this.props.visible} title={t('sendTestEmail')} onCloseAsync={() => this.hideModal()} buttons={[
-                { label: t('send'), className: 'btn-danger', onClickAsync: ::this.performAction },
-                { label: t('cancel'), className: 'btn-primary', onClickAsync: ::this.hideModal }
+                { label: t('send'), className: 'btn-primary', onClickAsync: ::this.performAction },
+                { label: t('cancel'), className: 'btn-danger', onClickAsync: ::this.hideModal }
             ]}>
                 <Form stateOwner={this} format="wide">
                     <TableSelect id="testUser" format="wide" label={t('subscription')} withHeader dropdown dataUrl={`rest/campaigns-test-users-table/${this.props.entity.id}`} columns={testUsersColumns} selectionLabelIndex={1} />

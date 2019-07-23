@@ -1,7 +1,7 @@
 'use strict';
 
 const config = require('config');
-const fork = require('child_process').fork;
+const fork = require('../lib/fork').fork;
 const log = require('../lib/log');
 const path = require('path');
 const knex = require('../lib/knex');
@@ -9,6 +9,10 @@ const {CampaignStatus, CampaignType} = require('../../shared/campaigns');
 const { enforce } = require('../lib/helpers');
 const campaigns = require('../models/campaigns');
 const builtinZoneMta = require('../lib/builtin-zone-mta');
+const {CampaignActivityType} = require('../../shared/activity-log');
+const activityLog = require('../lib/activity-log');
+require('../lib/fork');
+
 
 let messageTid = 0;
 const workerProcesses = new Map();
@@ -127,6 +131,8 @@ async function processCampaign(campaignId) {
         }
 
         await knex('campaigns').where('id', campaignId).update({status: CampaignStatus.FINISHED});
+        await activityLog.logEntityActivity('campaign', CampaignActivityType.STATUS_CHANGE, campaignId, {status: CampaignStatus.FINISHED});
+
         messageQueue.delete(campaignId);
     }
 
@@ -214,6 +220,7 @@ async function scheduleCampaigns() {
 
                 if (scheduledCampaign) {
                     await tx('campaigns').where('id', scheduledCampaign.id).update({status: CampaignStatus.SENDING});
+                    await activityLog.logEntityActivity('campaign', CampaignActivityType.STATUS_CHANGE, scheduledCampaign.id, {status: CampaignStatus.SENDING});
                     campaignId = scheduledCampaign.id;
                 }
             });

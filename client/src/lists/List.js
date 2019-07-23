@@ -2,26 +2,12 @@
 
 import React, {Component} from 'react';
 import {withTranslation} from '../lib/i18n';
-import {
-    NavButton,
-    requiresAuthenticatedUser,
-    Title,
-    Toolbar,
-    withPageHelpers
-} from '../lib/page';
-import {
-    withAsyncErrorHandler,
-    withErrorHandling
-} from '../lib/error-handling';
+import {LinkButton, requiresAuthenticatedUser, Title, Toolbar, withPageHelpers} from '../lib/page';
+import {withAsyncErrorHandler, withErrorHandling} from '../lib/error-handling';
 import {Table} from '../lib/table';
-import {Link} from "react-router-dom";
 import {Icon} from "../lib/bootstrap-components";
 import {checkPermissions} from "../lib/permissions";
-import {
-    tableAddDeleteButton,
-    tableRestActionDialogInit,
-    tableRestActionDialogRender
-} from "../lib/modals";
+import {tableAddDeleteButton, tableRestActionDialogInit, tableRestActionDialogRender} from "../lib/modals";
 import {withComponentMixins} from "../lib/decorator-helpers";
 import {withForm} from "../lib/form";
 
@@ -146,8 +132,8 @@ export default class List extends Component {
                 {tableRestActionDialogRender(this)}
                 {this.state.createPermitted &&
                     <Toolbar>
-                        <NavButton linkTo="/lists/create" className="btn-primary" icon="plus" label={t('createList')}/>
-                        <NavButton linkTo="/lists/forms" className="btn-primary" label={t('customForms-1')}/>
+                        <LinkButton to="/lists/create" className="btn-primary" icon="plus" label={t('createList')}/>
+                        <LinkButton to="/lists/forms" className="btn-primary" label={t('customForms-1')}/>
                     </Toolbar>
                 }
 

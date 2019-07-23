@@ -1,11 +1,12 @@
 'use strict';
 
 const config = require('config');
-const fork = require('child_process').fork;
+const fork = require('./fork').fork;
 const log = require('./log');
 const path = require('path');
 const fs = require('fs-extra')
 const crypto = require('crypto');
+const bluebird = require('bluebird');
 
 let zoneMtaProcess;
 
@@ -108,8 +109,8 @@ async function createConfig() {
             default: {
                 preferIPv6: false,
                 ignoreIPv6: true,
-                processes: 1,
-                connections: 5,
+                processes: config.builtinZoneMTA.processes,
+                connections: config.builtinZoneMTA.connections,
                 pool: 'default'
             }
         }
@@ -155,6 +156,6 @@ function spawn(callback) {
     }
 }
 
-module.exports.spawn = spawn;
+module.exports.spawn = bluebird.promisify(spawn);
 module.exports.getUsername = getUsername;
 module.exports.getPassword = getPassword;

@@ -3,17 +3,9 @@
 import React, {Component} from 'react';
 import {withTranslation} from '../lib/i18n';
 import {Trans} from 'react-i18next';
-import {
-    requiresAuthenticatedUser,
-    Title,
-    withPageHelpers
-} from '../lib/page'
-import {
-    withAsyncErrorHandler,
-    withErrorHandling
-} from '../lib/error-handling';
-import axios
-    from '../lib/axios';
+import {requiresAuthenticatedUser, Title, withPageHelpers} from '../lib/page'
+import {withAsyncErrorHandler, withErrorHandling} from '../lib/error-handling';
+import axios from '../lib/axios';
 import {Button} from '../lib/bootstrap-components';
 import {getUrl} from "../lib/urls";
 import {withComponentMixins} from "../lib/decorator-helpers";
@@ -350,10 +342,10 @@ export default class API extends Component {
                 <pre>curl -XGET '{getUrl(`api/lists/test@example.com?access_token=${accessToken}`)}'</pre>
 
 
-                <h4>GET /api/rss/fetch/:campaignCid – {t('Trigger fetch of a campaign')}</h4>
+                <h4>GET /api/rss/fetch/:campaignCid – {t('triggerFetchOfACampaign')}</h4>
 
                 <p>
-                    {t('Forces the RSS feed check to immediately check the campaign with the given CID (in :campaignCid). It works only for RSS campaigns.')}
+                    {t('forcesTheRssFeedCheckToImmediatelyCheck')}
                 </p>
 
                 <p>
@@ -368,6 +360,37 @@ export default class API extends Component {
                 </p>
 
                 <pre>curl -XGET '{getUrl(`api/rss/fetch/5OOnZKrp0?access_token=${accessToken}`)}'</pre>
+
+                <h4>POST /api/templates/:templateId/send – {t('sendTransactionalEmail')}</h4>
+
+                <p>
+                    {t('sendSingleEmailByTemplateWithGiven')}
+                </p>
+
+                <p>
+                    <strong>GET</strong> {t('arguments')}
+                </p>
+                <ul>
+                    <li><strong>access_token</strong> – {t('yourPersonalAccessToken')}</li>
+                </ul>
+
+                <p>
+                    <strong>POST</strong> {t('arguments')}
+                </p>
+                <ul>
+                    <li><strong>EMAIL</strong> – {t('emailAddress')} (<em>{t('required')}</em>)</li>
+                    <li><strong>SEND_CONFIGURATION_ID</strong> – {t('idOfConfigurationUsedToCreateMailer')}</li>
+                    <li><strong>SUBJECT</strong> – {t('subject')}</li>
+                    <li><strong>DATA</strong> – {t('dataPassedToTemplateWhenCompilingWith')}: <em>{'{'} "any": ["type", {'{'}"of": "data"{'}'}] {'}'}</em></li>
+                    <li><strong>VARIABLES</strong> – {t('mapOfTemplatesubjectVariablesToReplace')}: <em>{'{'} "FOO": "bar" {'}'}</em></li>
+                </ul>
+
+                <p>
+                    <strong>{t('example')}</strong>
+                </p>
+
+                <pre>curl -XPOST '{getUrl(`api/templates/1/send?access_token={accessToken}`)}' \
+--data 'EMAIL=test@example.com&amp;SUBJECT=Test&amp;VARIABLES[FOO]=bar&amp;VARIABLES[TEST]=example'</pre>
             </div>
         );
     }

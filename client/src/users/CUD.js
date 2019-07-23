@@ -1,35 +1,25 @@
 'use strict';
 
 import React, {Component} from 'react';
-import PropTypes
-    from 'prop-types';
+import PropTypes from 'prop-types';
 import {withTranslation} from '../lib/i18n';
-import {
-    NavButton,
-    requiresAuthenticatedUser,
-    Title,
-    withPageHelpers
-} from '../lib/page';
+import {LinkButton, requiresAuthenticatedUser, Title, withPageHelpers} from '../lib/page';
 import {
     Button,
     ButtonRow,
+    filterData,
     Form,
     FormSendMethod,
     InputField,
     TableSelect,
-    withForm
+    withForm,
+    withFormErrorHandlers
 } from '../lib/form';
 import {withErrorHandling} from '../lib/error-handling';
-import interoperableErrors
-    from '../../../shared/interoperable-errors';
-import passwordValidator
-    from '../../../shared/password-validator';
-import mailtrainConfig
-    from 'mailtrainConfig';
-import {
-    NamespaceSelect,
-    validateNamespace
-} from '../lib/namespace';
+import interoperableErrors from '../../../shared/interoperable-errors';
+import passwordValidator from '../../../shared/password-validator';
+import mailtrainConfig from 'mailtrainConfig';
+import {NamespaceSelect, validateNamespace} from '../lib/namespace';
 import {DeleteModalDialog} from "../lib/modals";
 import {withComponentMixins} from "../lib/decorator-helpers";
 
@@ -62,12 +52,18 @@ export default class CUD extends Component {
         entity: PropTypes.object
     }
 
+    getFormValuesMutator(data) {
+        data.password = '';
+        data.password2 = '';
+    }
+
+    submitFormValuesMutator(data) {
+        return filterData(data, ['username', 'name', 'email', 'password', 'namespace', 'role']);
+    }
+
     componentDidMount() {
         if (this.props.entity) {
-            this.getFormValuesFromEntity(this.props.entity, data => {
-                data.password = '';
-                data.password2 = '';
-            });
+            this.getFormValuesFromEntity(this.props.entity);
         } else {
             this.populateFormValues({
                 username: '',
@@ -156,7 +152,8 @@ export default class CUD extends Component {
         validateNamespace(t, state);
     }
 
-    async submitHandler() {
+    @withFormErrorHandlers
+    async submitHandler(submitAndLeave) {
         const t = this.props.t;
 
         let sendMethod, url;
@@ -172,12 +169,24 @@ export default class CUD extends Component {
             this.disableForm();
             this.setFormStatusMessage('info', t('saving'));
 
-            const submitSuccessful = await this.validateAndSendFormValuesToURL(sendMethod, url, data => {
-                delete data.password2;
-            });
+            const submitResult = await this.validateAndSendFormValuesToURL(sendMethod, url);
 
-            if (submitSuccessful) {
-                this.navigateToWithFlashMessage('/users', 'success', t('userSaved'));
+            if (submitResult) {
+                if (this.props.entity) {
+                    if (submitAndLeave) {
+                        this.navigateToWithFlashMessage('/users', 'success', t('userUpdated'));
+                    } else {
+                        await this.getFormValuesFromURL(`rest/users/${this.props.entity.id}`);
+                        this.enableForm();
+                        this.setFormStatusMessage('success', t('userUpdated'));
+                    }
+                } else {
+                    if (submitAndLeave) {
+                        this.navigateToWithFlashMessage('/users', 'success', t('userCreated'));
+                    } else {
+                        this.navigateToWithFlashMessage(`/users/${submitResult}/edit`, 'success', t('userCreated'));
+                    }
+                }
             } else {
                 this.enableForm();
                 this.setFormStatusMessage('warning', t('thereAreErrorsInTheFormPleaseFixThemAnd'));
@@ -249,7 +258,8 @@ export default class CUD extends Component {
 
                     <ButtonRow>
                         <Button type="submit" className="btn-primary" icon="check" label={t('save')}/>
-                        {canDelete && <NavButton className="btn-danger" icon="trash-alt" label={t('deleteUser')} linkTo={`/users/${this.props.entity.id}/delete`}/>}
+                        <Button type="submit" className="btn-primary" icon="check" label={t('saveAndLeave')} onClickAsync={async () => await this.submitHandler(true)}/>
+                        {canDelete && <LinkButton className="btn-danger" icon="trash-alt" label={t('deleteUser')} to={`/users/${this.props.entity.id}/delete`}/>}
                     </ButtonRow>
                 </Form>
             </div>

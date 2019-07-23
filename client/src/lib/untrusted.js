@@ -1,27 +1,13 @@
 'use strict';
 
 import React, {Component} from "react";
-import PropTypes
-    from "prop-types";
+import PropTypes from "prop-types";
 import {withTranslation} from './i18n';
-import {
-    requiresAuthenticatedUser,
-    withPageHelpers
-} from "./page";
-import {
-    withAsyncErrorHandler,
-    withErrorHandling
-} from "./error-handling";
-import axios
-    from "./axios";
-import styles
-    from "./styles.scss";
-import {
-    getSandboxUrl,
-    getTrustedUrl,
-    getUrl,
-    setRestrictedAccessToken
-} from "./urls";
+import {requiresAuthenticatedUser, withPageHelpers} from "./page";
+import {withAsyncErrorHandler, withErrorHandling} from "./error-handling";
+import axios from "./axios";
+import styles from "./styles.scss";
+import {getSandboxUrl, getUrl, setRestrictedAccessToken} from "./urls";
 import {withComponentMixins} from "./decorator-helpers";
 
 @withComponentMixins([
@@ -38,10 +24,11 @@ export class UntrustedContentHost extends Component {
         this.contentNodeIsLoaded = false;
 
         this.state = {
-            hasAccessToken: false,
+            hasAccessToken: false
         };
 
         this.receiveMessageHandler = ::this.receiveMessage;
+        this.contentNodeRefHandler = node => this.contentNode = node;
 
         this.rpcCounter = 0;
         this.rpcResolves = new Map();
@@ -79,6 +66,7 @@ export class UntrustedContentHost extends Component {
             resolve(msg.data.ret);
         } else if (msg.type === 'rpcRequest') {
             const ret = await this.props.onMethodAsync(msg.data.method, msg.data.params);
+            this.sendMessage('rpcResponse', {msgId: msg.data.msgId, ret});
         } else if (msg.type === 'clientHeight') {
             const newHeight = msg.data;
             this.contentNode.height = newHeight;
@@ -86,7 +74,8 @@ export class UntrustedContentHost extends Component {
     }
 
     sendMessage(type, data) {
-        if (this.contentNodeIsLoaded) { // This is to avoid errors: Failed to execute 'postMessage' on 'DOMWindow': The target origin provided ('http://localhost:8081') does not match the recipient window's origin ('http://localhost:3000')"
+        if (this.contentNodeIsLoaded && this.contentNode) { // This is to avoid errors: Failed to execute 'postMessage' on 'DOMWindow': The target origin provided ('http://localhost:8081') does not match the recipient window's origin ('http://localhost:3000')"
+                                                            // When the child window is closed during processing of the message, the this.contentNode becomes null and we can't deliver the response
             this.contentNode.contentWindow.postMessage({type, data}, getSandboxUrl());
         }
     }
@@ -137,7 +126,7 @@ export class UntrustedContentHost extends Component {
             // noinspection JSIgnoredPromiseFromCall
             this.refreshAccessToken();
             this.scheduleRefreshAccessToken();
-        }, 60 * 1000);
+        }, 30 * 1000);
     }
 
     handleUpdate() {
@@ -173,7 +162,8 @@ export class UntrustedContentHost extends Component {
 
     render() {
         return (
-            <iframe className={styles.untrustedContent + ' ' + this.props.className} ref={node => this.contentNode = node} src={getSandboxUrl(this.props.contentSrc)} onLoad={::this.contentNodeLoaded}> </iframe>
+            // The 40 px below corresponds to the height in .sandbox-loading-message
+            <iframe className={styles.untrustedContent + ' ' + this.props.className} height="40px" ref={this.contentNodeRefHandler} src={getSandboxUrl(this.props.contentSrc)} onLoad={::this.contentNodeLoaded}></iframe>
         );
     }
 }
@@ -216,10 +206,10 @@ export class UntrustedContentRoot extends Component {
     async receiveMessage(evt) {
         const msg = evt.data;
 
-        if (msg.type === 'initAvailable' && !this.state.initialized) {
+        if (msg.type === 'initAvailable') {
             this.sendMessage('initNeeded');
 
-        } else if (msg.type === 'init' && !this.state.initialized) {
+        } else if (msg.type === 'init') {
             setRestrictedAccessToken(msg.data.accessToken);
             this.setState({
                 initialized: true,
@@ -232,7 +222,7 @@ export class UntrustedContentRoot extends Component {
     }
 
     sendMessage(type, data) {
-        window.parent.postMessage({type, data}, getTrustedUrl());
+        window.parent.postMessage({type, data}, '*');
     }
 
     componentDidMount() {
@@ -253,8 +243,8 @@ export class UntrustedContentRoot extends Component {
             return this.props.render(this.state.contentProps);
         } else {
             return (
-                <div>
-                    {t('loading-1')}
+                <div className="sandbox-loading-message">
+                    {t('loading')}
                 </div>
             );
         }
@@ -334,7 +324,7 @@ class ParentRPC {
     }
 
     sendMessage(type, data) {
-        window.parent.postMessage({type, data}, getTrustedUrl());
+        window.parent.postMessage({type, data}, '*');
     }
 }
 

@@ -2,10 +2,8 @@
 
 import React, {Component} from 'react';
 import {withTranslation} from './i18n';
-import PropTypes
-    from "prop-types";
-import styles
-    from "./sandboxed-mosaico.scss";
+import PropTypes from "prop-types";
+import styles from "./sandboxed-mosaico.scss";
 
 import {UntrustedContentHost} from './untrusted';
 import {Icon} from "./bootstrap-components";
@@ -22,7 +20,9 @@ export class MosaicoHost extends Component {
 
         this.state = {
             fullscreen: false
-        }
+        };
+
+        this.contentNodeRefHandler = node => this.contentNode = node;
     }
 
     static propTypes = {
@@ -32,6 +32,7 @@ export class MosaicoHost extends Component {
         onSave: PropTypes.func,
         canSave: PropTypes.bool,
         onTestSend: PropTypes.func,
+        onShowExport: PropTypes.func,
         onFullscreenAsync: PropTypes.func,
         templateId: PropTypes.number,
         templatePath: PropTypes.string,
@@ -76,12 +77,13 @@ export class MosaicoHost extends Component {
                         <div className={styles.title}>{this.props.title}</div>
                     </div>
                     <div className={styles.navbarRight}>
-                        {this.props.canSave ? <a className={styles.btn} onClick={this.props.onSave} title={t('Save')}><Icon icon="save"/></a> : <span className={styles.btnDisabled}><Icon icon="save"/></span>}
-                        <a className={styles.btn} onClick={this.props.onTestSend} title={t('Send test e-mail')}><Icon icon="at"/></a>
-                        <a className={styles.btn} onClick={::this.toggleFullscreenAsync} title={t('Maximize editor')}><Icon icon="window-maximize"/></a>
+                        {this.props.canSave ? <a className={styles.btn} onClick={this.props.onSave} title={t('save')}><Icon icon="save"/></a> : <span className={styles.btnDisabled}><Icon icon="save"/></span>}
+                        <a className={styles.btn} onClick={this.props.onTestSend} title={t('sendTestEmail-1')}><Icon icon="at"/></a>
+                        <a className={styles.btn} onClick={() => this.props.onShowExport('html', 'HTML')} title={t('showHtml')}><Icon icon="file-code"/></a>
+                        <a className={styles.btn} onClick={::this.toggleFullscreenAsync} title={t('maximizeEditor')}><Icon icon="window-maximize"/></a>
                     </div>
                 </div>
-                <UntrustedContentHost ref={node => this.contentNode = node} className={styles.host} singleToken={true} contentProps={editorData} contentSrc="mosaico/editor" tokenMethod="mosaico" tokenParams={tokenData}/>
+                <UntrustedContentHost ref={this.contentNodeRefHandler} className={styles.host} singleToken={true} contentProps={editorData} contentSrc="mosaico/editor" tokenMethod="mosaico" tokenParams={tokenData}/>
             </div>
         );
     }

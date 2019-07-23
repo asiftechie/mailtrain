@@ -1,47 +1,33 @@
 'use strict';
 
 import React, {Component} from "react";
-import PropTypes
-    from "prop-types";
+import PropTypes from "prop-types";
 import {withTranslation} from '../../lib/i18n';
+import {LinkButton, requiresAuthenticatedUser, Title, Toolbar, withPageHelpers} from "../../lib/page";
 import {
-    NavButton,
-    requiresAuthenticatedUser,
-    Title,
-    Toolbar,
-    withPageHelpers
-} from "../../lib/page";
-import {
-    Button as FormButton,
     ButtonRow,
     Dropdown,
+    filterData,
     Form,
     FormSendMethod,
     InputField,
-    withForm
+    withForm,
+    withFormErrorHandlers
 } from "../../lib/form";
 import {withErrorHandling} from "../../lib/error-handling";
 import {DeleteModalDialog} from "../../lib/modals";
 
-import styles
-    from "./CUD.scss";
+import styles from "./CUD.scss";
 import {DragDropContext} from "react-dnd";
-import HTML5Backend
-    from "react-dnd-html5-backend";
-import TouchBackend
-    from "react-dnd-touch-backend";
-import SortableTree
-    from "react-sortable-tree";
+import HTML5Backend from "react-dnd-html5-backend";
+import TouchBackend from "react-dnd-touch-backend";
+import SortableTree from "react-sortable-tree";
 import 'react-sortable-tree/style.css';
-import {
-    ActionLink,
-    Button,
-    Icon
-} from "../../lib/bootstrap-components";
+import {ActionLink, Button, Icon} from "../../lib/bootstrap-components";
 import {getRuleHelpers} from "./helpers";
-import RuleSettingsPane
-    from "./RuleSettingsPane";
+import RuleSettingsPane from "./RuleSettingsPane";
 import {withComponentMixins} from "../../lib/decorator-helpers";
+import clone from "clone";
 
 // https://stackoverflow.com/a/4819886/1601953
 const isTouchDevice = !!('ontouchstart' in window || navigator.maxTouchPoints);
@@ -56,7 +42,7 @@ const isTouchDevice = !!('ontouchstart' in window || navigator.maxTouchPoints);
 ])
 export default class CUD extends Component {
     // The code below keeps the segment settings in form value. However, it uses it as a mutable datastructure.
-    // After initilization, segment settings is never set using setState. This is OK we update the state.rulesTree
+    // After initilization, segment settings is never set using setState. This is OK since we update the state.rulesTree
     // from the segment settings on relevant events (changes in the tree and closing the rule settings pane).
 
     constructor(props) {
@@ -119,16 +105,27 @@ export default class CUD extends Component {
         return tree;
     }
 
+    getFormValuesMutator(data, originalData) {
+        data.rootRuleType = data.settings.rootRule.type;
+        data.selectedRule = (originalData && originalData.selectedRule) || null; // Validation errors of the selected rule are attached to this which makes sure we don't submit the segment if the opened rule has errors
+
+        this.setState({
+            rulesTree: this.getTreeFromRules(data.settings.rootRule.rules)
+        });
+    }
+
+    submitFormValuesMutator(data) {
+        data.settings.rootRule.type = data.rootRuleType;
+
+        // We have to clone the data here otherwise the form change detection doesn't work. This is because we use the state as a mutable structure.
+        data = clone(data);
+
+        return filterData(data, ['name', 'settings']);
+    }
+
     componentDidMount() {
         if (this.props.entity) {
-            this.setState({
-                rulesTree: this.getTreeFromRules(this.props.entity.settings.rootRule.rules)
-            });
-
-            this.getFormValuesFromEntity(this.props.entity, data => {
-                data.rootRuleType = data.settings.rootRule.type;
-                data.selectedRule = null; // Validation errors of the selected rule are attached to this which makes sure we don't submit the segment if the opened rule has errors
-            });
+            this.getFormValuesFromEntity(this.props.entity);
 
         } else {
             this.populateFormValues({
@@ -159,7 +156,8 @@ export default class CUD extends Component {
         }
     }
 
-    async doSubmit(stay) {
+    @withFormErrorHandlers
+    async submitHandler(submitAndLeave) {
         const t = this.props.t;
 
         let sendMethod, url;
@@ -175,29 +173,24 @@ export default class CUD extends Component {
             this.disableForm();
             this.setFormStatusMessage('info', t('saving'));
 
-            const submitSuccessful = await this.validateAndSendFormValuesToURL(sendMethod, url, data => {
-                const keep = ['name', 'settings', 'originalHash'];
+            const submitResult = await this.validateAndSendFormValuesToURL(sendMethod, url);
 
-                data.settings.rootRule.type = data.rootRuleType;
+            if (submitResult) {
+                if (this.props.entity) {
+                    if (submitAndLeave) {
+                        this.navigateToWithFlashMessage(`/lists/${this.props.list.id}/segments`, 'success', t('segmentUpdated'));
+                    } else {
+                        await this.getFormValuesFromURL(`rest/segments/${this.props.list.id}/${this.props.entity.id}`);
 
-                delete data.rootRuleType;
-                delete data.selectedRule;
-            });
-
-            if (submitSuccessful) {
-                if (stay) {
-                    await this.getFormValuesFromURL(`rest/segments/${this.props.list.id}/${this.props.entity.id}`, data => {
-                        data.rootRuleType = data.settings.rootRule.type;
-                        data.selectedRule = null; // Validation errors of the selected rule are attached to this which makes sure we don't submit the segment if the opened rule has errors
-
-                        this.setState({
-                            rulesTree: this.getTreeFromRules(data.settings.rootRule.rules)
-                        });
-                    });
-                    this.enableForm();
-                    this.setFormStatusMessage('success', t('segmentSaved'));
+                        this.enableForm();
+                        this.setFormStatusMessage('success', t('segmentUpdated'));
+                    }
                 } else {
-                    this.navigateToWithFlashMessage(`/lists/${this.props.list.id}/segments`, 'success', t('segmentSaved'));
+                    if (submitAndLeave) {
+                        this.navigateToWithFlashMessage(`/lists/${this.props.list.id}/segments`, 'success', t('segmentCreated'));
+                    } else {
+                        this.navigateToWithFlashMessage(`/lists/${this.props.list.id}/segments/${submitResult}/edit`, 'success', t('segmentCreated'));
+                    }
                 }
             } else {
                 this.enableForm();
@@ -206,14 +199,6 @@ export default class CUD extends Component {
         } catch (error) {
             throw error;
         }
-    }
-
-    async submitAndStay() {
-        await this.formHandleChangedError(async () => await this.doSubmit(true));
-    }
-
-    async submitAndLeave() {
-        await this.formHandleChangedError(async () => await this.doSubmit(false));
     }
 
     onRulesChanged(rulesTree) {
@@ -354,7 +339,7 @@ export default class CUD extends Component {
 
                 <Title>{isEdit ? t('editSegment') : t('createSegment')}</Title>
 
-                <Form stateOwner={this} onSubmitAsync={::this.submitAndLeave}>
+                <Form stateOwner={this} onSubmitAsync={::this.submitHandler}>
                     <h3>{t('segmentOptions')}</h3>
 
                     <InputField id="name" label={t('name')} />
@@ -407,19 +392,12 @@ export default class CUD extends Component {
                 </div>
 
                 <hr/>
-                {isEdit ?
-                    <ButtonRow format="wide" className={`col-xs-12 ${styles.toolbar}`}>
-                        <Button type="submit" className="btn-primary" icon="check" label={t('saveAndStay')} onClickAsync={::this.submitAndStay}/>
-                        <Button type="submit" className="btn-primary" icon="check" label={t('saveAndLeave')} onClickAsync={::this.submitAndLeave}/>
+                <ButtonRow format="wide" className={`col-12 ${styles.toolbar}`}>
+                    <Button type="submit" className="btn-primary" icon="check" label={t('save')} onClickAsync={async () => await this.submitHandler(false)}/>
+                    <Button type="submit" className="btn-primary" icon="check" label={t('saveAndLeave')} onClickAsync={async () => await this.submitHandler(true)}/>
 
-                        <NavButton className="btn-danger" icon="trash-alt" label={t('delete')} linkTo={`/lists/${this.props.list.id}/segments/${this.props.entity.id}/delete`}/>
-                    </ButtonRow>
-                    :
-                    <ButtonRow format="wide" className={`col-xs-12 ${styles.toolbar}`}>
-                        <Button type="submit" className="btn-primary" icon="check" label={t('save')} onClickAsync={::this.submitAndLeave}/>
-                    </ButtonRow>
-                }
-
+                    {isEdit && <LinkButton className="btn-danger" icon="trash-alt" label={t('delete')} to={`/lists/${this.props.list.id}/segments/${this.props.entity.id}/delete`}/> }
+                </ButtonRow>
             </div>
         );
     }

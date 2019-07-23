@@ -1,21 +1,16 @@
 'use strict';
 
 import React, {Component} from 'react';
-import PropTypes
-    from 'prop-types';
+import PropTypes from 'prop-types';
 import {withTranslation} from '../../lib/i18n';
-import {
-    NavButton,
-    requiresAuthenticatedUser,
-    Title,
-    withPageHelpers
-} from '../../lib/page';
+import {LinkButton, requiresAuthenticatedUser, Title, withPageHelpers} from '../../lib/page';
 import {
     AlignedRow,
     Button,
     ButtonRow,
     CheckBox,
     Dropdown,
+    filterData,
     Form,
     FormSendMethod,
     InputField,
@@ -26,12 +21,8 @@ import {
 import {withErrorHandling} from '../../lib/error-handling';
 import {DeleteModalDialog} from "../../lib/modals";
 import {getTriggerTypes} from './helpers';
-import {
-    Entity,
-    Event
-} from '../../../../shared/triggers';
-import moment
-    from 'moment';
+import {Entity, Event} from '../../../../shared/triggers';
+import moment from 'moment';
 import {getCampaignLabels} from "../helpers";
 import {withComponentMixins} from "../../lib/decorator-helpers";
 
@@ -52,7 +43,6 @@ export default class CUD extends Component {
         this.campaignTypeLabels = getCampaignLabels(props.t);
 
         const {entityLabels, eventLabels} = getTriggerTypes(props.t);
-        this.entityLabels = entityLabels;
 
         this.entityOptions = [
             {key: Entity.SUBSCRIPTION, label: entityLabels[Entity.SUBSCRIPTION]},
@@ -86,23 +76,37 @@ export default class CUD extends Component {
         entity: PropTypes.object
     }
 
+    getFormValuesMutator(data) {
+        data.daysAfter = (Math.round(data.seconds / (3600 * 24))).toString();
+
+        if (data.entity === Entity.SUBSCRIPTION) {
+            data.subscriptionEvent = data.event;
+        } else {
+            data.subscriptionEvent = Event[Entity.SUBSCRIPTION].CREATED;
+        }
+
+        if (data.entity === Entity.CAMPAIGN) {
+            data.campaignEvent = data.event;
+        } else {
+            data.campaignEvent = Event[Entity.CAMPAIGN].DELIVERED;
+        }
+    }
+
+    submitFormValuesMutator(data) {
+        data.seconds = Number.parseInt(data.daysAfter) * 3600 * 24;
+
+        if (data.entity === Entity.SUBSCRIPTION) {
+            data.event = data.subscriptionEvent;
+        } else if (data.entity === Entity.CAMPAIGN) {
+            data.event = data.campaignEvent;
+        }
+
+        return filterData(data, ['name', 'description', 'entity', 'event', 'seconds', 'enabled', 'source_campaign']);
+    }
+
     componentDidMount() {
         if (this.props.entity) {
-            this.getFormValuesFromEntity(this.props.entity, data => {
-                data.daysAfter = (Math.round(data.seconds / (3600 * 24))).toString();
-
-                if (data.entity === Entity.SUBSCRIPTION) {
-                    data.subscriptionEvent = data.event;
-                } else {
-                    data.subscriptionEvent = Event[Entity.SUBSCRIPTION].CREATED;
-                }
-
-                if (data.entity === Entity.CAMPAIGN) {
-                    data.campaignEvent = data.event;
-                } else {
-                    data.campaignEvent = Event[Entity.CAMPAIGN].DELIVERED;
-                }
-            });
+            this.getFormValuesFromEntity(this.props.entity);
 
         } else {
             this.populateFormValues({
@@ -145,7 +149,7 @@ export default class CUD extends Component {
         }
     }
 
-    async submitHandler() {
+    async submitHandler(submitAndLeave) {
         const t = this.props.t;
 
         let sendMethod, url;
@@ -161,18 +165,24 @@ export default class CUD extends Component {
             this.disableForm();
             this.setFormStatusMessage('info', t('saving'));
 
-            const submitSuccessful = await this.validateAndSendFormValuesToURL(sendMethod, url, data => {
-                data.seconds = Number.parseInt(data.daysAfter) * 3600 * 24;
+            const submitResult = await this.validateAndSendFormValuesToURL(sendMethod, url);
 
-                if (data.entity === Entity.SUBSCRIPTION) {
-                    data.event = data.subscriptionEvent;
-                } else if (data.entity === Entity.CAMPAIGN) {
-                    data.event = data.campaignEvent;
+            if (submitResult) {
+                if (this.props.entity) {
+                    if (submitAndLeave) {
+                        this.navigateToWithFlashMessage(`/campaigns/${this.props.campaign.id}/triggers`, 'success', t('triggerUpdated'));
+                    } else {
+                        await this.getFormValuesFromURL(`rest/triggers/${this.props.campaign.id}/${this.props.entity.id}`);
+                        this.enableForm();
+                        this.setFormStatusMessage('success', t('triggerUpdated'));
+                    }
+                } else {
+                    if (submitAndLeave) {
+                        this.navigateToWithFlashMessage(`/campaigns/${this.props.campaign.id}/triggers`, 'success', t('triggerCreated'));
+                    } else {
+                        this.navigateToWithFlashMessage(`/campaigns/${this.props.campaign.id}/triggers/${submitResult}/edit`, 'success', t('triggerCreated'));
+                    }
                 }
-            });
-
-            if (submitSuccessful) {
-                this.navigateToWithFlashMessage(`/campaigns/${this.props.campaign.id}/triggers`, 'success', t('triggerSaved'));
             } else {
                 this.enableForm();
                 this.setFormStatusMessage('warning', t('thereAreErrorsInTheFormPleaseFixThemAnd'));
@@ -236,7 +246,8 @@ export default class CUD extends Component {
 
                     <ButtonRow>
                         <Button type="submit" className="btn-primary" icon="check" label={t('save')}/>
-                        {isEdit && <NavButton className="btn-danger" icon="trash-alt" label={t('delete')} linkTo={`/campaigns/${this.props.campaign.id}/triggers/${this.props.entity.id}/delete`}/>}
+                        <Button type="submit" className="btn-primary" icon="check" label={t('saveAndLeave')} onClickAsync={async () => await this.submitHandler(true)}/>
+                        {isEdit && <LinkButton className="btn-danger" icon="trash-alt" label={t('delete')} to={`/campaigns/${this.props.campaign.id}/triggers/${this.props.entity.id}/delete`}/>}
                     </ButtonRow>
                 </Form>
             </div>

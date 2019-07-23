@@ -1,16 +1,10 @@
 'use strict';
 
 import React, {Component} from 'react';
-import PropTypes
-    from 'prop-types';
+import PropTypes from 'prop-types';
 import {Trans} from 'react-i18next';
 import {withTranslation} from '../../lib/i18n';
-import {
-    NavButton,
-    requiresAuthenticatedUser,
-    Title,
-    withPageHelpers
-} from '../../lib/page';
+import {LinkButton, requiresAuthenticatedUser, Title, withPageHelpers} from '../../lib/page';
 import {
     ACEEditor,
     Button,
@@ -18,27 +12,22 @@ import {
     CheckBox,
     Dropdown,
     Fieldset,
+    filterData,
     Form,
     FormSendMethod,
     InputField,
     StaticField,
     TableSelect,
-    withForm
+    withForm,
+    withFormErrorHandlers
 } from '../../lib/form';
 import {withErrorHandling} from '../../lib/error-handling';
 import {DeleteModalDialog} from "../../lib/modals";
 import {getFieldTypes} from './helpers';
-import validators
-    from '../../../../shared/validators';
-import slugify
-    from 'slugify';
-import {
-    DateFormat,
-    parseBirthday,
-    parseDate
-} from '../../../../shared/date';
-import styles
-    from "../../lib/styles.scss";
+import validators from '../../../../shared/validators';
+import slugify from 'slugify';
+import {DateFormat, parseBirthday, parseDate} from '../../../../shared/date';
+import styles from "../../lib/styles.scss";
 import 'brace/mode/json';
 import 'brace/mode/handlebars';
 import {withComponentMixins} from "../../lib/decorator-helpers";
@@ -87,50 +76,101 @@ export default class CUD extends Component {
         }
     }
 
+    getFormValuesMutator(data) {
+        data.settings = data.settings || {};
+
+        if (data.default_value === null) {
+            data.default_value = '';
+        }
+
+        data.isInGroup = data.group !== null;
+
+        data.enumOptions = '';
+        data.dateFormat = DateFormat.EUR;
+        data.renderTemplate = '';
+
+        switch (data.type) {
+            case 'checkbox-grouped':
+            case 'radio-grouped':
+            case 'dropdown-grouped':
+            case 'json':
+                data.renderTemplate = data.settings.renderTemplate;
+                break;
+
+            case 'radio-enum':
+            case 'dropdown-enum':
+                data.enumOptions = this.renderEnumOptions(data.settings.options);
+                data.renderTemplate = data.settings.renderTemplate;
+                break;
+
+            case 'date':
+            case 'birthday':
+                data.dateFormat = data.settings.dateFormat;
+                break;
+
+            case 'option':
+                data.checkedLabel = data.isInGroup ? '' : data.settings.checkedLabel;
+                data.uncheckedLabel = data.isInGroup ? '' : data.settings.uncheckedLabel;
+                break;
+        }
+
+        data.orderListBefore = data.orderListBefore.toString();
+        data.orderSubscribeBefore = data.orderSubscribeBefore.toString();
+        data.orderManageBefore = data.orderManageBefore.toString();
+    }
+
+    submitFormValuesMutator(data) {
+        if (data.default_value.trim() === '') {
+            data.default_value = null;
+        }
+
+        if (!data.isInGroup) {
+            data.group = null;
+        }
+
+        data.settings = {};
+        switch (data.type) {
+            case 'checkbox-grouped':
+            case 'radio-grouped':
+            case 'dropdown-grouped':
+            case 'json':
+                data.settings.renderTemplate = data.renderTemplate;
+                break;
+
+            case 'radio-enum':
+            case 'dropdown-enum':
+                data.settings.options = this.parseEnumOptions(data.enumOptions).options;
+                data.settings.renderTemplate = data.renderTemplate;
+                break;
+
+            case 'date':
+            case 'birthday':
+                data.settings.dateFormat = data.dateFormat;
+                break;
+
+            case 'option':
+                if (!data.isInGroup) {
+                    data.settings.checkedLabel = data.checkedLabel;
+                    data.settings.uncheckedLabel = data.uncheckedLabel;
+                }
+                break;
+        }
+
+        if (data.group !== null) {
+            data.orderListBefore = data.orderSubscribeBefore = data.orderManageBefore = 'none';
+        } else {
+            data.orderListBefore = Number.parseInt(data.orderListBefore) || data.orderListBefore;
+            data.orderSubscribeBefore = Number.parseInt(data.orderSubscribeBefore) || data.orderSubscribeBefore;
+            data.orderManageBefore = Number.parseInt(data.orderManageBefore) || data.orderManageBefore;
+        }
+
+        return filterData(data, ['name', 'key', 'default_value', 'type', 'group', 'settings',
+            'orderListBefore', 'orderSubscribeBefore', 'orderManageBefore']);
+    }
+
     componentDidMount() {
         if (this.props.entity) {
-            this.getFormValuesFromEntity(this.props.entity, data => {
-                data.settings = data.settings || {};
-
-                if (data.default_value === null) {
-                    data.default_value = '';
-                }
-
-                data.isInGroup = data.group !== null;
-
-                data.enumOptions = '';
-                data.dateFormat = DateFormat.EUR;
-                data.renderTemplate = '';
-
-                switch (data.type) {
-                    case 'checkbox-grouped':
-                    case 'radio-grouped':
-                    case 'dropdown-grouped':
-                    case 'json':
-                        data.renderTemplate = data.settings.renderTemplate;
-                        break;
-
-                    case 'radio-enum':
-                    case 'dropdown-enum':
-                        data.enumOptions = this.renderEnumOptions(data.settings.options);
-                        data.renderTemplate = data.settings.renderTemplate;
-                        break;
-
-                    case 'date':
-                    case 'birthday':
-                        data.dateFormat = data.settings.dateFormat;
-                        break;
-
-                    case 'option':
-                        data.checkedLabel = data.isInGroup ? '' : data.settings.checkedLabel;
-                        data.uncheckedLabel = data.isInGroup ? '' : data.settings.uncheckedLabel;
-                        break;
-                }
-
-                data.orderListBefore = data.orderListBefore.toString();
-                data.orderSubscribeBefore = data.orderSubscribeBefore.toString();
-                data.orderManageBefore = data.orderManageBefore.toString();
-            });
+            this.getFormValuesFromEntity(this.props.entity);
 
         } else {
             this.populateFormValues({
@@ -248,7 +288,8 @@ export default class CUD extends Component {
     }
 
 
-    async submitHandler() {
+    @withFormErrorHandlers
+    async submitHandler(submitAndLeave) {
         const t = this.props.t;
 
         let sendMethod, url;
@@ -264,61 +305,24 @@ export default class CUD extends Component {
             this.disableForm();
             this.setFormStatusMessage('info', t('saving'));
 
-            const submitSuccessful = await this.validateAndSendFormValuesToURL(sendMethod, url, data => {
-                if (data.default_value.trim() === '') {
-                    data.default_value = null;
-                }
+            const submitResult = await this.validateAndSendFormValuesToURL(sendMethod, url);
 
-                if (!data.isInGroup) {
-                    data.group = null;
-                }
-
-                data.settings = {};
-                switch (data.type) {
-                    case 'checkbox-grouped':
-                    case 'radio-grouped':
-                    case 'dropdown-grouped':
-                    case 'json':
-                        data.settings.renderTemplate = data.renderTemplate;
-                        break;
-
-                    case 'radio-enum':
-                    case 'dropdown-enum':
-                        data.settings.options = this.parseEnumOptions(data.enumOptions).options;
-                        data.settings.renderTemplate = data.renderTemplate;
-                        break;
-
-                    case 'date':
-                    case 'birthday':
-                        data.settings.dateFormat = data.dateFormat;
-                        break;
-
-                    case 'option':
-                        if (!data.isInGroup) {
-                            data.settings.checkedLabel = data.checkedLabel;
-                            data.settings.uncheckedLabel = data.uncheckedLabel;
-                        }
-                        break;
-                }
-
-                delete data.renderTemplate;
-                delete data.enumOptions;
-                delete data.dateFormat;
-                delete data.checkedLabel;
-                delete data.uncheckedLabel;
-                delete data.isInGroup;
-
-                if (data.group !== null) {
-                    data.orderListBefore = data.orderSubscribeBefore = data.orderManageBefore = 'none';
+            if (submitResult) {
+                if (this.props.entity) {
+                    if (submitAndLeave) {
+                        this.navigateToWithFlashMessage(`/lists/${this.props.list.id}/fields`, 'success', t('fieldUpdated'));
+                    } else {
+                        await this.getFormValuesFromURL(`rest/fields/${this.props.list.id}/${this.props.entity.id}`);
+                        this.enableForm();
+                        this.setFormStatusMessage('success', t('fieldUpdated'));
+                    }
                 } else {
-                    data.orderListBefore = Number.parseInt(data.orderListBefore) || data.orderListBefore;
-                    data.orderSubscribeBefore = Number.parseInt(data.orderSubscribeBefore) || data.orderSubscribeBefore;
-                    data.orderManageBefore = Number.parseInt(data.orderManageBefore) || data.orderManageBefore;
+                    if (submitAndLeave) {
+                        this.navigateToWithFlashMessage(`/lists/${this.props.list.id}/fields`, 'success', t('fieldCreated'));
+                    } else {
+                        this.navigateToWithFlashMessage(`/lists/${this.props.list.id}/fields/${submitResult}/edit`, 'success', t('fieldCreated'));
+                    }
                 }
-            });
-
-            if (submitSuccessful) {
-                this.navigateToWithFlashMessage(`/lists/${this.props.list.id}/fields`, 'success', t('fieldSaved'));
             } else {
                 this.enableForm();
                 this.setFormStatusMessage('warning', t('thereAreErrorsInTheFormPleaseFixThemAnd'));
@@ -455,14 +459,14 @@ export default class CUD extends Component {
 
                 fieldSettings =
                     <Fieldset label={t('fieldSettings')}>
-                        <CheckBox id="isInGroup" label={t('group')} text={t('Belongs to checkbox / dropdown / radio group')}/>
+                        <CheckBox id="isInGroup" label={t('group')} text={t('belongsToCheckboxDropdownRadioGroup')}/>
                         {isInGroup &&
-                            <TableSelect id="group" label={t('Containing group')} withHeader dropdown dataUrl={`rest/fields-grouped-table/${this.props.list.id}`} columns={fieldsGroupedColumns} selectionLabelIndex={1} help={t('selectGroupToWhichTheOptionsShouldBelong')}/>
+                            <TableSelect id="group" label={t('containingGroup')} withHeader dropdown dataUrl={`rest/fields-grouped-table/${this.props.list.id}`} columns={fieldsGroupedColumns} selectionLabelIndex={1} help={t('selectGroupToWhichTheOptionsShouldBelong')}/>
                         }
                         {!isInGroup &&
                             <>
-                                <InputField id="checkedLabel" label={t('Checked label')} help={t('Label that will be displayed in list and subscription when the option is checked')}/>
-                                <InputField id="uncheckedLabel" label={t('Unchecked label')} help={t('Label that will be displayed in list and subscription when the option is unchecked')}/>
+                                <InputField id="checkedLabel" label={t('checkedLabel')} help={t('labelThatWillBeDisplayedInListAnd')}/>
+                                <InputField id="uncheckedLabel" label={t('uncheckedLabel')} help={t('labelThatWillBeDisplayedInListAnd-1')}/>
                             </>
                         }
                         <InputField id="default_value" label={t('defaultValue')} help={t('defaultValueUsedWhenTheFieldIsEmpty')}/>
@@ -509,7 +513,8 @@ export default class CUD extends Component {
 
                     <ButtonRow>
                         <Button type="submit" className="btn-primary" icon="check" label={t('save')}/>
-                        {isEdit && <NavButton className="btn-danger" icon="trash-alt" label={t('delete')} linkTo={`/lists/${this.props.list.id}/fields/${this.props.entity.id}/delete`}/>}
+                        <Button type="submit" className="btn-primary" icon="check" label={t('saveAndLeave')} onClickAsync={async () => await this.submitHandler(true)}/>
+                        {isEdit && <LinkButton className="btn-danger" icon="trash-alt" label={t('delete')} to={`/lists/${this.props.list.id}/fields/${this.props.entity.id}/delete`}/>}
                     </ButtonRow>
                 </Form>
             </div>

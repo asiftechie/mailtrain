@@ -2,32 +2,14 @@
 
 import React, {Component} from 'react';
 import {withTranslation} from '../../lib/i18n';
-import {
-    ButtonDropdown,
-    Icon
-} from '../../lib/bootstrap-components';
-import {
-    ButtonDropdownLink,
-    NavDropdown,
-    requiresAuthenticatedUser,
-    Title,
-    Toolbar,
-    withPageHelpers
-} from '../../lib/page';
-import {
-    withAsyncErrorHandler,
-    withErrorHandling
-} from '../../lib/error-handling';
+import {ButtonDropdown, Icon} from '../../lib/bootstrap-components';
+import {DropdownLink, requiresAuthenticatedUser, Title, Toolbar, withPageHelpers} from '../../lib/page';
+import {withAsyncErrorHandler, withErrorHandling} from '../../lib/error-handling';
 import {Table} from '../../lib/table';
-import moment
-    from 'moment';
+import moment from 'moment';
 import {getTemplateTypes} from './helpers';
 import {checkPermissions} from "../../lib/permissions";
-import {
-    tableAddDeleteButton,
-    tableRestActionDialogInit,
-    tableRestActionDialogRender
-} from "../../lib/modals";
+import {tableAddDeleteButton, tableRestActionDialogInit, tableRestActionDialogRender} from "../../lib/modals";
 import {withComponentMixins} from "../../lib/decorator-helpers";
 
 
@@ -121,8 +103,9 @@ export default class List extends Component {
                 {this.state.createPermitted &&
                     <Toolbar>
                         <ButtonDropdown buttonClassName="btn-primary" menuClassName="dropdown-menu-right" label={t('createMosaicoTemplate')}>
-                            <ButtonDropdownLink to="/templates/mosaico/create">{t('blank')}</ButtonDropdownLink>
-                            <ButtonDropdownLink to="/templates/mosaico/create/versafix">{t('versafixOne')}</ButtonDropdownLink>
+                            <DropdownLink to="/templates/mosaico/create">{t('blank')}</DropdownLink>
+                            <DropdownLink to="/templates/mosaico/create/versafix">{t('versafixOne')}</DropdownLink>
+                            <DropdownLink to="/templates/mosaico/create/mjml-sample">{t('mjmlSample')}</DropdownLink>
                         </ButtonDropdown>
                     </Toolbar>
                 }

@@ -1,38 +1,28 @@
 'use strict';
 
 import React, {Component} from 'react';
-import PropTypes
-    from 'prop-types';
+import PropTypes from 'prop-types';
 import {withTranslation} from '../lib/i18n';
-import {
-    requiresAuthenticatedUser,
-    Title,
-    withPageHelpers
-} from '../lib/page'
+import {requiresAuthenticatedUser, Title, withPageHelpers} from '../lib/page'
 import {
     Button,
     ButtonRow,
+    filterData,
     Form,
     FormSendMethod,
     StaticField,
-    withForm
+    withForm,
+    withFormErrorHandlers
 } from '../lib/form';
 import {withErrorHandling} from '../lib/error-handling';
-import mailtrainConfig
-    from 'mailtrainConfig';
-import {
-    getEditForm,
-    getTemplateTypes,
-    getTypeForm,
-    ResourceType
-} from '../templates/helpers';
-import axios
-    from '../lib/axios';
-import styles
-    from "../lib/styles.scss";
+import mailtrainConfig from 'mailtrainConfig';
+import {getEditForm, getTemplateTypes, getTypeForm, ResourceType} from '../templates/helpers';
+import axios from '../lib/axios';
+import styles from "../lib/styles.scss";
 import {getUrl} from "../lib/urls";
 import {TestSendModalDialog} from "./TestSendModalDialog";
 import {withComponentMixins} from "../lib/decorator-helpers";
+import {ContentModalDialog} from "../lib/modals";
 
 
 @withComponentMixins([
@@ -58,19 +48,31 @@ export default class CustomContent extends Component {
         this.state = {
             showMergeTagReference: false,
             elementInFullscreen: false,
-            showTestSendModal: false
+            showTestSendModal: false,
+            showExportModal: false,
+            exportModalContentType: null,
+            exportModalTitle: ''
         };
 
-        this.initForm();
+        this.initForm({
+            getPreSubmitUpdater: ::this.getPreSubmitFormValuesUpdater,
+        });
 
         this.sendModalGetDataHandler = ::this.sendModalGetData;
+        this.exportModalGetContentHandler = ::this.exportModalGetContent;
+
+        // This is needed here because if this is passed as an anonymous function, it will reset the editorNode to null with each render.
+        // This becomes a problem when Show HTML button is pressed because that one tries to access the editorNode while it is null.
+        this.editorNodeRefHandler = node => this.editorNode = node;
     }
 
     static propTypes = {
-        entity: PropTypes.object
+        entity: PropTypes.object,
+        setPanelInFullScreen: PropTypes.func
     }
 
-    loadFromEntityMutator(data) {
+
+    getFormValuesMutator(data) {
         data.data_sourceCustom_type = data.data.sourceCustom.type;
         data.data_sourceCustom_data = data.data.sourceCustom.data;
         data.data_sourceCustom_html = data.data.sourceCustom.html;
@@ -79,8 +81,32 @@ export default class CustomContent extends Component {
         this.templateTypes[data.data.sourceCustom.type].afterLoad(data);
     }
 
+    submitFormValuesMutator(data) {
+        this.templateTypes[data.data_sourceCustom_type].beforeSave(data);
+
+        data.data.sourceCustom = {
+            type: data.data_sourceCustom_type,
+            data: data.data_sourceCustom_data,
+            html: data.data_sourceCustom_html,
+            text: data.data_sourceCustom_text
+        };
+
+        return filterData(data, ['data']);
+    }
+
+    async getPreSubmitFormValuesUpdater() {
+        const customTemplateTypeKey = this.getFormValue('data_sourceCustom_type');
+        const exportedData = await this.templateTypes[customTemplateTypeKey].exportHTMLEditorData(this);
+
+        return mutStateData => {
+            for (const key in exportedData) {
+                mutStateData.setIn([key, 'value'], exportedData[key]);
+            }
+        };
+    }
+
     componentDidMount() {
-        this.getFormValuesFromEntity(this.props.entity, data => this.loadFromEntityMutator(data));
+        this.getFormValuesFromEntity(this.props.entity);
     }
 
     localValidateFormValues(state) {
@@ -94,18 +120,18 @@ export default class CustomContent extends Component {
     }
 
     async save() {
-        await this.doSave(true);
+        await this.submitHandler(CustomContent.AfterSubmitAction.STAY);
     }
 
-    async submitHandler() {
-        await this.doSave(false);
+    static AfterSubmitAction = {
+        STAY: 0,
+        LEAVE: 1,
+        STATUS: 2
     }
 
-    async doSave(stayOnPage) {
+    @withFormErrorHandlers
+    async submitHandler(afterSubmitAction) {
         const t = this.props.t;
-
-        const customTemplateTypeKey = this.getFormValue('data_sourceCustom_type');
-        const exportedData = await this.templateTypes[customTemplateTypeKey].exportHTMLEditorData(this);
 
         const sendMethod = FormSendMethod.PUT;
         const url = `rest/campaigns-content/${this.props.entity.id}`;
@@ -113,33 +139,17 @@ export default class CustomContent extends Component {
         this.disableForm();
         this.setFormStatusMessage('info', t('saving'));
 
-        const submitResponse = await this.validateAndSendFormValuesToURL(sendMethod, url, data => {
-            Object.assign(data, exportedData);
-            this.templateTypes[data.data_sourceCustom_type].beforeSave(data);
+        const submitResult = await this.validateAndSendFormValuesToURL(sendMethod, url);
 
-            data.data.sourceCustom = {
-                type: data.data_sourceCustom_type,
-                data: data.data_sourceCustom_data,
-                html: data.data_sourceCustom_html,
-                text: data.data_sourceCustom_text
-            };
-
-            for (const key in data) {
-                if (key.startsWith('data_')) {
-                    delete data[key];
-                }
-            }
-        });
-
-        if (submitResponse) {
-            if (stayOnPage) {
-                await this.getFormValuesFromURL(`rest/campaigns-content/${this.props.entity.id}`, data => this.loadFromEntityMutator(data));
-                this.enableForm();
-                this.clearFormStatusMessage();
-                this.setFlashMessage('success', t('campaignSaved'));
-
+        if (submitResult) {
+            if (afterSubmitAction === CustomContent.AfterSubmitAction.STATUS) {
+                this.navigateToWithFlashMessage(`/campaigns/${this.props.entity.id}/status`, 'success', t('campaignUpdated'));
+            } else if (afterSubmitAction === CustomContent.AfterSubmitAction.LEAVE) {
+                this.navigateToWithFlashMessage('/campaigns', 'success', t('campaignUpdated'));
             } else {
-                this.navigateToWithFlashMessage('/campaigns', 'success', t('campaignSaved'));
+                await this.getFormValuesFromURL(`rest/campaigns-content/${this.props.entity.id}`);
+                this.enableForm();
+                this.setFormStatusMessage('success', t('campaignUpdated'));
             }
         } else {
             this.enableForm();
@@ -177,6 +187,7 @@ export default class CustomContent extends Component {
     }
 
     async setElementInFullscreen(elementInFullscreen) {
+        this.props.setPanelInFullScreen(elementInFullscreen);
         this.setState({
             elementInFullscreen
         });
@@ -198,6 +209,19 @@ export default class CustomContent extends Component {
         };
     }
 
+    showExportModal(contentType, title) {
+        this.setState({
+            showExportModal: true,
+            exportModalContentType: contentType,
+            exportModalTitle: title
+        });
+    }
+
+    async exportModalGetContent() {
+        const customTemplateTypeKey = this.getFormValue('data_sourceCustom_type');
+        return await this.templateTypes[customTemplateTypeKey].exportContent(this, this.state.exportModalContentType);
+    }
+
     render() {
         const t = this.props.t;
 
@@ -215,6 +239,12 @@ export default class CustomContent extends Component {
                     getDataAsync={this.sendModalGetDataHandler}
                     entity={this.props.entity}
                 />
+                <ContentModalDialog
+                    title={this.state.exportModalTitle}
+                    visible={this.state.showExportModal}
+                    onHide={() => this.setState({showExportModal: false})}
+                    getContentAsync={this.exportModalGetContentHandler}
+                />
 
                 <Title>{t('editCustomContent')}</Title>
 
@@ -229,7 +259,9 @@ export default class CustomContent extends Component {
 
                     <ButtonRow>
                         <Button type="submit" className="btn-primary" icon="check" label={t('save')}/>
-                        <Button className="btn-danger" icon="send" label={t('testSend')} onClickAsync={async () => this.setState({showTestSendModal: true})}/>
+                        <Button type="submit" className="btn-primary" icon="check" label={t('saveAndLeave')} onClickAsync={async () => await this.submitHandler(CustomContent.AfterSubmitAction.LEAVE)}/>
+                        <Button type="submit" className="btn-primary" icon="check" label={t('saveAndGoToStatus')} onClickAsync={async () => await this.submitHandler(CustomContent.AfterSubmitAction.STATUS)}/>
+                        <Button className="btn-success" icon="at" label={t('testSend')} onClickAsync={async () => this.setState({showTestSendModal: true})}/>
                     </ButtonRow>
                 </Form>
             </div>

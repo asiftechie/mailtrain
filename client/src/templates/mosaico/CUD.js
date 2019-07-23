@@ -1,38 +1,30 @@
 'use strict';
 
 import React, {Component} from 'react';
-import PropTypes
-    from 'prop-types';
+import PropTypes from 'prop-types';
 import {withTranslation} from '../../lib/i18n';
-import {
-    NavButton,
-    requiresAuthenticatedUser,
-    Title,
-    withPageHelpers
-} from '../../lib/page'
+import {LinkButton, requiresAuthenticatedUser, Title, withPageHelpers} from '../../lib/page'
 import {
     Button,
     ButtonRow,
     Dropdown,
+    filterData,
     Form,
     FormSendMethod,
     InputField,
+    StaticField,
     TextArea,
-    withForm
+    withForm,
+    withFormErrorHandlers
 } from '../../lib/form';
 import {withErrorHandling} from '../../lib/error-handling';
-import {
-    NamespaceSelect,
-    validateNamespace
-} from '../../lib/namespace';
+import {NamespaceSelect, validateNamespace} from '../../lib/namespace';
 import {DeleteModalDialog} from "../../lib/modals";
 
-import {getVersafix} from "../../../../shared/mosaico-templates";
-import {
-    getTemplateTypes,
-    getTemplateTypesOrder
-} from "./helpers";
+import {getMJMLSample, getVersafix} from "../../../../shared/mosaico-templates";
+import {getTemplateTypes, getTemplateTypesOrder} from "./helpers";
 import {withComponentMixins} from "../../lib/decorator-helpers";
+import styles from "../../lib/styles.scss";
 
 @withComponentMixins([
     withTranslation,
@@ -66,11 +58,18 @@ export default class CUD extends Component {
         entity: PropTypes.object
     }
 
+    getFormValuesMutator(data) {
+        this.templateTypes[data.type].afterLoad(this, data);
+    }
+
+    submitFormValuesMutator(data) {
+        this.templateTypes[data.type].beforeSave(this, data);
+        return filterData(data, ['name', 'description', 'type', 'data', 'namespace']);
+    }
+
     componentDidMount() {
         if (this.props.entity) {
-            this.getFormValuesFromEntity(this.props.entity, data => {
-                this.templateTypes[data.type].afterLoad(data);
-            });
+            this.getFormValuesFromEntity(this.props.entity);
 
         } else {
             const wizard = this.props.wizard;
@@ -82,6 +81,15 @@ export default class CUD extends Component {
                     namespace: mailtrainConfig.user.namespace,
                     type: 'html',
                     html: getVersafix()
+                });
+
+            } else if (wizard === 'mjml-sample') {
+                this.populateFormValues({
+                    name: '',
+                    description: '',
+                    namespace: mailtrainConfig.user.namespace,
+                    type: 'mjml',
+                    mjml: getMJMLSample()
                 });
 
             } else {
@@ -114,15 +122,8 @@ export default class CUD extends Component {
         validateNamespace(t, state);
     }
 
-    async submitAndStay() {
-        await this.formHandleChangedError(async () => await this.doSubmit(true));
-    }
-
-    async submitAndLeave() {
-        await this.formHandleChangedError(async () => await this.doSubmit(false));
-    }
-
-    async doSubmit(stay) {
+    @withFormErrorHandlers
+    async submitHandler(submitAndLeave) {
         const t = this.props.t;
 
         let sendMethod, url;
@@ -137,19 +138,23 @@ export default class CUD extends Component {
         this.disableForm();
         this.setFormStatusMessage('info', t('saving'));
 
-        const submitSuccessful = await this.validateAndSendFormValuesToURL(sendMethod, url, data => {
-            this.templateTypes[data.type].beforeSave(data);
-        });
+        const submitResult = await this.validateAndSendFormValuesToURL(sendMethod, url);
 
-        if (submitSuccessful) {
-            if (stay) {
-                await this.getFormValuesFromURL(`rest/mosaico-templates/${this.props.entity.id}`, data => {
-                    this.templateTypes[data.type].afterLoad(data);
-                });
-                this.enableForm();
-                this.setFormStatusMessage('success', t('mosaicoTemplateSaved'));
+        if (submitResult) {
+            if (this.props.entity) {
+                if (submitAndLeave) {
+                    this.navigateToWithFlashMessage('/templates/mosaico', 'success', t('mosaicoTemplateUpdated'));
+                } else {
+                    await this.getFormValuesFromURL(`rest/mosaico-templates/${this.props.entity.id}`);
+                    this.enableForm();
+                    this.setFormStatusMessage('success', t('mosaicoTemplateUpdated'));
+                }
             } else {
-                this.navigateToWithFlashMessage('/templates/mosaico', 'success', t('mosaicoTemplateSaved'));
+                if (submitAndLeave) {
+                    this.navigateToWithFlashMessage('/templates/mosaico', 'success', t('mosaicoTemplateCreated'));
+                } else {
+                    this.navigateToWithFlashMessage(`/templates/mosaico/${submitResult}/edit`, 'success', t('mosaicoTemplateCreated'));
+                }
             }
         } else {
             this.enableForm();
@@ -163,10 +168,6 @@ export default class CUD extends Component {
         const canDelete = isEdit && this.props.entity.permissions.includes('delete');
 
         const typeKey = this.getFormValue('type');
-        let form = null;
-        if (typeKey) {
-            form = this.templateTypes[typeKey].getForm(this);
-        }
 
         return (
             <div>
@@ -183,27 +184,32 @@ export default class CUD extends Component {
 
                 <Title>{isEdit ? t('editMosaicoTemplate') : t('createMosaicoTemplate')}</Title>
 
-                <Form stateOwner={this} onSubmitAsync={::this.submitAndLeave}>
+                <Form stateOwner={this} onSubmitAsync={::this.submitHandler}>
                     <InputField id="name" label={t('name')}/>
                     <TextArea id="description" label={t('description')}/>
-                    <Dropdown id="type" label={t('type')} options={this.typeOptions}/>
+                    {isEdit || this.props.wizard ?
+                        <StaticField id="type" className={styles.formDisabled} label={t('type')}>
+                            {typeKey && this.templateTypes[typeKey].typeName}
+                        </StaticField>
+                        :
+                        <Dropdown id="type" label={t('type')} options={this.typeOptions}/>
+                    }
                     <NamespaceSelect/>
 
-                    {form}
+                    {isEdit && typeKey && this.templateTypes[typeKey].getForm(this)}
 
-                    {isEdit ?
-                        <ButtonRow>
-                            <Button type="submit" className="btn-primary" icon="check" label={t('saveAndStay')} onClickAsync={::this.submitAndStay}/>
-                            <Button type="submit" className="btn-primary" icon="check" label={t('saveAndLeave')}/>
-                            {canDelete &&
-                                <NavButton className="btn-danger" icon="trash-alt" label={t('delete')} linkTo={`/templates/mosaico/${this.props.entity.id}/delete`}/>
-                            }
-                        </ButtonRow>
-                    :
-                        <ButtonRow>
+                    <ButtonRow>
+                        {isEdit ?
+                        <>
                             <Button type="submit" className="btn-primary" icon="check" label={t('save')}/>
-                        </ButtonRow>
-                    }
+                            <Button type="submit" className="btn-primary" icon="check" label={t('saveAndLeave')} onClickAsync={async () => await this.submitHandler(true)}/>
+                        </>
+                        :
+                        <Button type="submit" className="btn-primary" icon="check" label={t('saveAndEditContent')}/>
+                        }
+                        {canDelete && <LinkButton className="btn-danger" icon="trash-alt" label={t('delete')} to={`/templates/mosaico/${this.props.entity.id}/delete`}/>}
+                        {isEdit && typeKey && this.templateTypes[typeKey].getButtons(this)}
+                    </ButtonRow>
                 </Form>
             </div>
         );

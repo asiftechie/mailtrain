@@ -19,11 +19,15 @@ const reportProcessor = require('./lib/report-processor');
 const executor = require('./lib/executor');
 const privilegeHelpers = require('./lib/privilege-helpers');
 const knex = require('./lib/knex');
+const bluebird = require('bluebird');
 const shares = require('./models/shares');
 const { AppType } = require('../shared/app');
 const builtinZoneMta = require('./lib/builtin-zone-mta');
+const klawSync = require('klaw-sync');
 
 const { uploadedFilesDir } = require('./lib/file-helpers');
+const { reportFilesDir } = require('./lib/report-helpers');
+const { filesDir } = require('./models/files');
 
 const trustedPort = config.www.trustedPort;
 const sandboxPort = config.www.sandboxPort;
@@ -34,9 +38,8 @@ if (config.title) {
     process.title = config.title;
 }
 
-
-function startHTTPServer(appType, appName, port, callback) {
-    const app = appBuilder.createApp(appType);
+async function startHTTPServer(appType, appName, port) {
+    const app = await appBuilder.createApp(appType);
     app.set('port', port);
 
     const server = http.createServer(app);
@@ -67,69 +70,61 @@ function startHTTPServer(appType, appName, port, callback) {
         log.info('Express', 'WWW server [%s] listening on %s', appName, bind);
     });
 
-    server.listen({port, host}, callback);
+    const serverListenAsync = bluebird.promisify(server.listen.bind(server));
+    await serverListenAsync({port, host});
 }
 
+
 // ---------------------------------------------------------------------------------------
-// Start the whole circus here
+// Start the whole circus
 // ---------------------------------------------------------------------------------------
-dbcheck(err => { // Check if database needs upgrading before starting the server - legacy migration first
-    if (err) {
-        log.error('DB', err.message || err);
-        return process.exit(1);
+async function init() {
+    await dbcheck();
+
+    await knex.migrate.latest(); // And now the current migration with Knex
+
+    await shares.regenerateRoleNamesTable();
+    await shares.rebuildPermissions();
+
+    await privilegeHelpers.ensureMailtrainDir(filesDir);
+
+    // Update owner of all files under 'files' dir. This should not be necessary, but when files are copied over,
+    // the ownership needs to be fixed.
+    for (const dirEnt of klawSync(filesDir, {})) {
+        await privilegeHelpers.ensureMailtrainOwner(dirEnt.path);
     }
 
-    knex.migrate.latest() // And now the current migration with Knex
+    await privilegeHelpers.ensureMailtrainDir(uploadedFilesDir);
+    await privilegeHelpers.ensureMailtrainDir(reportFilesDir);
 
-    .then(() => shares.regenerateRoleNamesTable())
-    .then(() => shares.rebuildPermissions())
+    await executor.spawn();
+    await testServer.start();
+    await verpServer.start();
+    await builtinZoneMta.spawn();
 
-/*
-    .then(() =>
-        testServer(() => {
-            senders.spawn(() => {
-            });
-        })
-    );
-*/
+    await startHTTPServer(AppType.TRUSTED, 'trusted', trustedPort);
+    await startHTTPServer(AppType.SANDBOXED, 'sandbox', sandboxPort);
+    await startHTTPServer(AppType.PUBLIC, 'public', publicPort);
 
-    .then(() =>
-        executor.spawn(() => 
-            testServer(() => 
-                verpServer(() =>
-                    builtinZoneMta.spawn(() =>
-                        startHTTPServer(AppType.TRUSTED, 'trusted', trustedPort, () =>
-                            startHTTPServer(AppType.SANDBOXED, 'sandbox', sandboxPort, () =>
-                                startHTTPServer(AppType.PUBLIC, 'public', publicPort, async () => {
+    privilegeHelpers.dropRootPrivileges();
 
-                                    await privilegeHelpers.ensureMailtrainDir(uploadedFilesDir);
+    tzupdate.start();
 
-                                    privilegeHelpers.dropRootPrivileges();
+    await importer.spawn();
+    await feedcheck.spawn();
+    await senders.spawn();
 
-                                    tzupdate.start();
+    triggers.start();
+    gdprCleanup.start();
 
-                                    importer.spawn(() =>
-                                        feedcheck.spawn(() =>
-                                            senders.spawn(() => {
-                                                triggers.start();
-                                                gdprCleanup.start();
+    await postfixBounceServer.start();
 
-                                                postfixBounceServer(async () => {
-                                                    await reportProcessor.init();
-                                                    log.info('Service', 'All services started');
-                                                    appBuilder.setReady();
-                                                });
-                                            })
-                                        )
-                                    );
-                                })
-                            )
-                        )
-                    )
-                )
-            )
-        )
-    );
-});
+    await reportProcessor.init();
+
+    log.info('Service', 'All services started');
+    appBuilder.setReady();
+}
+
+init().catch(err => {log.error('', err); process.exit(1); });
 
 

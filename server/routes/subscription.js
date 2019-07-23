@@ -183,7 +183,6 @@ async function _renderSubscribe(req, res, list, subscription) {
     const htmlRenderer = await tools.getTemplate(data.template, req.locale);
 
     data.isWeb = true;
-    data.needsJsWarning = true;
 
     data.flashMessages = await captureFlashMessages(res);
 
@@ -335,7 +334,7 @@ router.getAsync('/:cid/widget', cors(corsOptions), async (req, res) => {
 
     await injectCustomFormData(req.query.fid || list.default_form, 'web_subscribe', data);
 
-    const renderAsync = bluebird.promisify(res.render);
+    const renderAsync = bluebird.promisify(res.render.bind(res));
     const html = await renderAsync('subscription/widget-subscribe', data);
 
     const response = {
@@ -385,7 +384,6 @@ router.getAsync('/:lcid/manage/:ucid', passport.csrfProtection, async (req, res)
     const htmlRenderer = await tools.getTemplate(data.template, req.locale);
 
     data.isWeb = true;
-    data.needsJsWarning = true;
     data.isManagePreferences = true;
     data.flashMessages = await captureFlashMessages(res);
 
@@ -435,7 +433,6 @@ router.getAsync('/:lcid/manage-address/:ucid', passport.csrfProtection, async (r
     const htmlRenderer = await tools.getTemplate(data.template, req.locale);
 
     data.isWeb = true;
-    data.needsJsWarning = true;
     data.isManagePreferences = true;
     data.flashMessages = await captureFlashMessages(res);
 
@@ -535,7 +532,6 @@ router.getAsync('/:lcid/unsubscribe/:ucid', passport.csrfProtection, async (req,
         const htmlRenderer = await tools.getTemplate(data.template, req.locale);
 
         data.isWeb = true;
-        data.needsJsWarning = true;
         data.flashMessages = await captureFlashMessages(res);
 
         res.send(htmlRenderer(data));
@@ -679,7 +675,7 @@ async function webNotice(type, req, res) {
         }
     };
 
-    await injectCustomFormData(req.query.fid || list.default_form, 'web_' + type + '_notice', data);
+    await injectCustomFormData(req.query.fid || list.default_form, 'web_' + type.replace('-', '_') + '_notice', data);
 
     const htmlRenderer = await tools.getTemplate(data.template, req.locale);
 

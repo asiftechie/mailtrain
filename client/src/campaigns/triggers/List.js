@@ -1,27 +1,15 @@
 'use strict';
 
 import React, {Component} from 'react';
-import PropTypes
-    from 'prop-types';
+import PropTypes from 'prop-types';
 import {withTranslation} from '../../lib/i18n';
-import {
-    NavButton,
-    requiresAuthenticatedUser,
-    Title,
-    Toolbar,
-    withPageHelpers
-} from '../../lib/page';
+import {LinkButton, requiresAuthenticatedUser, Title, Toolbar, withPageHelpers} from '../../lib/page';
 import {withErrorHandling} from '../../lib/error-handling';
 import {Table} from '../../lib/table';
 import {getTriggerTypes} from './helpers';
 import {Icon} from "../../lib/bootstrap-components";
-import mailtrainConfig
-    from 'mailtrainConfig';
-import {
-    tableAddDeleteButton,
-    tableRestActionDialogInit,
-    tableRestActionDialogRender
-} from "../../lib/modals";
+import mailtrainConfig from 'mailtrainConfig';
+import {tableAddDeleteButton, tableRestActionDialogInit, tableRestActionDialogRender} from "../../lib/modals";
 import {withComponentMixins} from "../../lib/decorator-helpers";
 
 @withComponentMixins([
@@ -84,7 +72,7 @@ export default class List extends Component {
                 {tableRestActionDialogRender(this)}
                 {mailtrainConfig.globalPermissions.setupAutomation && this.props.campaign.permissions.includes('manageTriggers') &&
                     <Toolbar>
-                        <NavButton linkTo={`/campaigns/${this.props.campaign.id}/triggers/create`} className="btn-primary" icon="plus" label={t('createTrigger')}/>
+                        <LinkButton to={`/campaigns/${this.props.campaign.id}/triggers/create`} className="btn-primary" icon="plus" label={t('createTrigger')}/>
                     </Toolbar>
                 }
 

@@ -2,8 +2,8 @@
 
 import React from 'react';
 import {DatePicker, Dropdown, InputField} from "../../lib/form";
-import { parseDate, parseBirthday, formatDate, formatBirthday, DateFormat, birthdayYear, getDateFormatString, getBirthdayFormatString } from '../../../../shared/date';
-import { tMark } from "../../lib/i18n";
+import {DateFormat, formatBirthday, formatDate, parseBirthday, parseDate} from '../../../../shared/date';
+import {tMark} from "../../lib/i18n";
 
 export function getRuleHelpers(t, fields) {
 
@@ -406,6 +406,11 @@ export function getRuleHelpers(t, fields) {
             column: 'latest_click',
             name: t('latestClick'),
             type: 'date'
+        },
+        {
+            column: 'is_test',
+            name: t('testUser'),
+            type: 'option'
         }
     ];
 

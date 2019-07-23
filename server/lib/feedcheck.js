@@ -1,17 +1,13 @@
 'use strict';
 
-const fork = require('child_process').fork;
+const fork = require('./fork').fork;
 const log = require('./log');
 const path = require('path');
 const senders = require('./senders');
+const bluebird = require('bluebird');
 
 let messageTid = 0;
 let feedcheckProcess;
-
-module.exports = {
-    spawn,
-    scheduleCheck
-};
 
 function spawn(callback) {
     log.verbose('Feed', 'Spawning feedcheck process');
@@ -46,3 +42,5 @@ function scheduleCheck() {
     messageTid++;
 }
 
+module.exports.spawn = bluebird.promisify(spawn);
+module.exports.scheduleCheck = scheduleCheck;

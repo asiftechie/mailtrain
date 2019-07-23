@@ -1,13 +1,10 @@
 'use strict';
 
-import React
-    from 'react';
-import CUD
-    from './CUD';
-import List
-    from './List';
-import UserShares
-    from '../shares/UserShares';
+import React from 'react';
+import CUD from './CUD';
+import List from './List';
+import UserShares from '../shares/UserShares';
+import {ellipsizeBreadcrumbLabel} from "../lib/helpers";
 
 function getMenus(t) {
     return {
@@ -17,7 +14,7 @@ function getMenus(t) {
             panelComponent: List,
             children: {
                 ':userId([0-9]+)': {
-                    title: resolved => t('userName-1', {name: resolved.user.name}),
+                    title: resolved => t('userName-1', {name: ellipsizeBreadcrumbLabel(resolved.user.name)}),
                     resolve: {
                         user: params => `rest/users/${params.userId}`
                     },

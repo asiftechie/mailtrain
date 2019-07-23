@@ -16,8 +16,8 @@ const { tUI } = require('../lib/translate');
 const bluebird = require('bluebird');
 
 const bcrypt = require('bcrypt-nodejs');
-const bcryptHash = bluebird.promisify(bcrypt.hash);
-const bcryptCompare = bluebird.promisify(bcrypt.compare);
+const bcryptHash = bluebird.promisify(bcrypt.hash.bind(bcrypt));
+const bcryptCompare = bluebird.promisify(bcrypt.compare.bind(bcrypt));
 
 const mailers = require('../lib/mailers');
 
@@ -36,18 +36,26 @@ function hash(entity) {
     return hasher.hash(filterObject(entity, hashKeys));
 }
 
-async function _getBy(context, key, value, extraColumns = []) {
+async function _getByTx(tx, context, key, value, extraColumns = []) {
     const columns = ['id', 'username', 'name', 'email', 'namespace', 'role', ...extraColumns];
 
-    const user = await knex('users').select(columns).where(key, value).first();
+    const user = await tx('users').select(columns).where(key, value).first();
 
     if (!user) {
         shares.throwPermissionDenied();
     }
 
+    // Note that getRestrictedAccessToken relies to this check to see whether a user may impersonate another. If "manageUsers" here were to be changed to something like "viewUsers", then
+    // a corresponding check has to be added to getRestrictedAccessToken
     await shares.enforceEntityPermission(context, 'namespace', user.namespace, 'manageUsers');
 
     return user;
+}
+
+async function _getBy(context, key, value, extraColumns = []) {
+    return await knex.transaction(async tx => {
+        return await _getByTx(tx, context, key, value, extraColumns);
+    });
 }
 
 async function getById(context, id) {
@@ -131,7 +139,7 @@ async function _validateAndPreprocess(tx, entity, isCreate, isOwnAccount) {
 
     if (!isOwnAccount) {
         const otherUserWithSameUsernameQuery = tx('users').where('username', entity.username);
-        if (entity.id) {
+        if (!isCreate) {
             otherUserWithSameUsernameQuery.andWhereNot('id', entity.id);
         }
 
@@ -254,9 +262,9 @@ async function getByUsername(username) {
     return await _getBy(contextHelpers.getAdminContext(), 'username', username);
 }
 
-async function getByUsernameIfPasswordMatch(username, password) {
+async function getByUsernameIfPasswordMatch(context, username, password) {
     try {
-        const user = await _getBy(contextHelpers.getAdminContext(), 'username', username, ['password']);
+        const user = await _getBy(context, 'username', username, ['password']);
 
         if (!await bcryptCompare(password, user.password)) {
             throw new interoperableErrors.IncorrectPasswordError();
@@ -316,7 +324,7 @@ async function sendPasswordReset(locale, usernameOrEmail) {
                     title: tUI('mailtrain', locale),
                     username: user.username,
                     name: user.name,
-                    confirmUrl: getTrustedUrl(`/account/reset/${encodeURIComponent(user.username)}/${encodeURIComponent(resetToken)}`)
+                    confirmUrl: getTrustedUrl(`login/reset/${encodeURIComponent(user.username)}/${encodeURIComponent(resetToken)}`)
                 }
             });
         }
@@ -405,8 +413,10 @@ async function getByRestrictedAccessToken(token) {
 
     if (tokenEntry) {
         const user = await getById(contextHelpers.getAdminContext(), tokenEntry.userId);
+        user.restrictedAccessMethod = tokenEntry.method;
         user.restrictedAccessHandler = tokenEntry.handler;
         user.restrictedAccessToken = tokenEntry.token;
+        user.restrictedAccessParams = tokenEntry.params;
 
         return user;
 

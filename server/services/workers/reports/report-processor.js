@@ -1,20 +1,18 @@
 'use strict';
 
 const reports = require('../../../models/reports');
-const reportTemplates = require('../../../models/report-templates');
 const lists = require('../../../models/lists');
 const subscriptions = require('../../../models/subscriptions');
+const { SubscriptionSource, SubscriptionStatus } = require('../../../../shared/lists');
 const campaigns = require('../../../models/campaigns');
 const handlebars = require('handlebars');
-const hbs = require('hbs');
 const vm = require('vm');
 const log = require('../../../lib/log');
-const fs = require('fs');
 const knex = require('../../../lib/knex');
 const contextHelpers = require('../../../lib/context-helpers');
-
-const csvStringify = require('csv-stringify');
+const {renderCsvFromStream} = require('../../../lib/report-helpers');
 const stream = require('stream');
+require('../../../lib/fork');
 
 async function main() {
     try {
@@ -50,9 +48,11 @@ async function main() {
         }
 
         const campaignsProxy = {
+            getCampaignStatistics: reports.getCampaignStatistics,
             getCampaignOpenStatistics: reports.getCampaignOpenStatistics,
             getCampaignClickStatistics: reports.getCampaignClickStatistics,
             getCampaignLinkClickStatistics: reports.getCampaignLinkClickStatistics,
+            getCampaignStatisticsStream: reports.getCampaignStatisticsStream,
             getCampaignOpenStatisticsStream: reports.getCampaignOpenStatisticsStream,
             getCampaignClickStatisticsStream: reports.getCampaignClickStatisticsStream,
             getCampaignLinkClickStatisticsStream: reports.getCampaignLinkClickStatisticsStream,
@@ -71,20 +71,9 @@ async function main() {
             knex,
             process,
             inputs,
-
-            renderCsvFromStream: async (readable, opts) => {
-                const stringifier = csvStringify(opts);
-
-                const finished = new Promise((success, fail) => {
-                    stringifier.on('finish', () => success())
-                    stringifier.on('error', (err) => fail(err))
-                });
-
-                stringifier.pipe(process.stdout);
-                readable.pipe(stringifier);
-
-                await finished;
-            },
+            SubscriptionSource,
+            SubscriptionStatus,
+            renderCsvFromStream: (readable, opts, transform) => renderCsvFromStream(readable, process.stdout, opts, transform),
 
             render: data => {
                 const hbsTmpl = handlebars.compile(report.hbs);

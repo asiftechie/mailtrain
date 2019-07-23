@@ -1,40 +1,19 @@
 'use strict';
 
 import React, {Component} from 'react';
-import PropTypes
-    from 'prop-types';
+import PropTypes from 'prop-types';
 import {withTranslation} from '../../lib/i18n';
-import {
-    requiresAuthenticatedUser,
-    Title,
-    withPageHelpers
-} from '../../lib/page';
-import {
-    AlignedRow,
-    ButtonRow
-} from '../../lib/form';
-import {
-    withAsyncErrorHandler,
-    withErrorHandling
-} from '../../lib/error-handling';
+import {requiresAuthenticatedUser, Title, withPageHelpers} from '../../lib/page';
+import {AlignedRow, ButtonRow} from '../../lib/form';
+import {withAsyncErrorHandler, withErrorHandling} from '../../lib/error-handling';
 import {getImportLabels} from './helpers';
-import {
-    prepFinishedAndNotInProgress,
-    runInProgress,
-    runStatusInProgress
-} from '../../../../shared/imports';
+import {prepFinishedAndNotInProgress, runInProgress, runStatusInProgress} from '../../../../shared/imports';
 import {Table} from "../../lib/table";
-import {
-    Button,
-    Icon
-} from "../../lib/bootstrap-components";
-import axios
-    from "../../lib/axios";
+import {Button, Icon} from "../../lib/bootstrap-components";
+import axios from "../../lib/axios";
 import {getUrl} from "../../lib/urls";
-import moment
-    from "moment";
-import interoperableErrors
-    from '../../../../shared/interoperable-errors';
+import moment from "moment";
+import interoperableErrors from '../../../../shared/interoperable-errors';
 import {withComponentMixins} from "../../lib/decorator-helpers";
 
 @withComponentMixins([
@@ -150,7 +129,7 @@ export default class Status extends Component {
                     }
 
                     actions.push({
-                        label: <Icon icon="eye-open" title={t('runStatus')}/>,
+                        label: <Icon icon="eye" title={t('runStatus')}/>,
                         link: `/lists/${this.props.list.id}/imports/${this.props.entity.id}/status/${data[0]}`
                     });
 

@@ -1,12 +1,15 @@
-@import "../../static/scss/variables";
+@import "../scss/variables.scss";
+
+.toolbar {
+  float: right;
+  margin-bottom: 15px;
+}
 
 .form { // This is here to give the styles below higher priority than Bootstrap has
   :global .DayPicker {
-    border-left: 1px solid lightgray;
-    border-right: 1px solid lightgray;
-    border-bottom: 1px solid lightgray;
-    border-radius: 4px;
-    padding: 15px;
+    border: $input-border-width solid $input-border-color;
+    border-radius: $input-border-radius;
+    padding: $input-padding-y $input-padding-x;
   }
 
   :global .form-horizontal .control-label {
@@ -58,6 +61,10 @@
   padding-bottom: 5px;
 }
 
+.dataTableTable {
+  overflow-x: auto;
+}
+
 .actionLinks > * {
   margin-right: 8px;
 }
@@ -71,7 +78,7 @@
 }
 
 .tableSelectTable.tableSelectTableHidden {
-  visibility: hidden;
+  display: none;
   height: 0px;
   margin-top: -15px;
 }
@@ -80,45 +87,52 @@
   background-color: white;
 }
 
-
 :global h3.legend {
   font-size: 21px;
   margin-bottom: 20px;
 }
 
-.breadcrumbAndSecondaryNavbar {
-/*
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-*/
+.tertiaryNav {
+  justify-content: flex-end;
+  flex-grow: 1;
+  align-self: center;
 
-  :global .breadcrumb {
-    margin-bottom: 0px;
-    padding-top: 0.5rem;
-    padding-bottom: 0.5rem;
-  }
+  margin-left: 5px;
+  margin-right: 5px;
 
-  margin-bottom: 1.5rem;
-
-  .secondaryNav {
-    justify-content: flex-end;
-
-    margin-top: 0.5rem;
-    margin-left: 5px;
-    margin-right: 5px;
-
-    :global .nav-item .nav-link {
-      padding: 3px 10px;
-    }
+  :global .nav-item .nav-link {
+    padding: 3px 10px;
   }
 }
 
-.dropZone {
-  padding-top: 30px;
-  padding-bottom: 30px;
-  margin-bottom: 15px;
-  margin-top: 8px;
+.colorPickerSwatchWrapper {
+  padding: 7px;
+  background: #fff;
+  border: 1px solid #AAB2BD;
+  border-radius: 4px;
+  display: inline-block;
+  cursor: pointer;
+
+  .colorPickerSwatchColor {
+    width: 60px;
+    height: 18px;
+    borderRadius: 2px;
+  }
+}
+
+.colorPickerWrapper {
+  text-align: right;
+}
+
+.checkboxText{
+  padding-top: 3px;
+}
+
+.dropZone{
+  padding-top: 20px;
+  padding-bottom: 20px;
+  margin-bottom: 3px;
+  margin-top: 3px;
   border: 2px solid #E6E9ED;
   border-radius: 5px;
   background-color: #FAFAD2;
@@ -154,18 +168,18 @@
   text-decoration: $link-decoration;
 }
 
-.dependenciesList {
+.errorsList {
   margin-bottom: 0px;
 }
 
 
 :global .modal-dialog {
   @media (min-width: 768px) {
-    width: 700px;
+    max-width: 700px;
   }
 
   @media (min-width: 1000px) {
-    width: 900px;
+    max-width: 900px;
   }
 }
 

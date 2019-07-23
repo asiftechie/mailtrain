@@ -10,6 +10,7 @@ const gm = require('gm').subClass({
     imageMagick: true
 });
 const users = require('../models/users');
+const capitalize = require('capitalize');
 
 const fs = require('fs-extra')
 
@@ -22,11 +23,15 @@ const mosaicoTemplates = require('../models/mosaico-templates');
 const contextHelpers = require('../lib/context-helpers');
 const interoperableErrors = require('../../shared/interoperable-errors');
 
+const bluebird = require('bluebird');
+
 const { getTrustedUrl, getSandboxUrl, getPublicUrl } = require('../lib/urls');
 const { base } = require('../../shared/templates');
 const { AppType } = require('../../shared/app');
 
 const {castToInteger} = require('../lib/helpers');
+
+const { fileCache } = require('../lib/file-cache');
 
 
 users.registerRestrictedAccessTokenMethod('mosaico', async ({entityTypeId, entityId}) => {
@@ -49,7 +54,7 @@ users.registerRestrictedAccessTokenMethod('mosaico', async ({entityTypeId, entit
 });
 
 
-async function placeholderImage(width, height) {
+async function placeholderImage(width, height, labelText, labelColor) {
     const magick = gm(width, height, '#707070');
     const streamAsync = bluebird.promisify(magick.stream.bind(magick));
 
@@ -70,11 +75,14 @@ async function placeholderImage(width, height) {
         }
     }
 
+    labelText = labelText || `${width} x ${height}`;
+    labelColor = labelColor || '#B0B0B0';
+
     // text
     magick
-        .fill('#B0B0B0')
+        .fill(labelColor)
         .fontSize(20)
-        .drawText(0, 0, width + ' x ' + height, 'center');
+        .drawText(0, 0, labelText, 'center');
 
     const stream = await streamAsync('png');
 
@@ -125,7 +133,7 @@ function sanitizeSize(val, min, max, defaultVal, allowNull) {
 
 
 
-function getRouter(appType) {
+async function getRouter(appType) {
     const router = routerFactory.create();
     
     if (appType === AppType.SANDBOXED) {
@@ -154,6 +162,16 @@ function getRouter(appType) {
         // This is a fallback to versafix-1 if the block thumbnail is not defined by the template
         router.use('/templates/:mosaicoTemplateId/edres', express.static(path.join(__dirname, '..', '..', 'client', 'static', 'mosaico', 'templates', 'versafix-1', 'edres')));
 
+        // This is the final fallback for a block thumbnail, so that at least something gets returned
+        router.getAsync('/templates/:mosaicoTemplateId/edres/:fileName', await fileCache('mosaico-block-thumbnails', config.mosaico.fileCache.blockThumbnails, req => req.params.fileName), async (req, res) => {
+            let labelText = req.params.fileName.replace(/\.png$/, '');
+            labelText = labelText.replace(/[_]/g, ' ');
+            labelText = capitalize.words(labelText);
+
+            const image = await placeholderImage(340, 100, labelText, '#ffffff');
+            res.set('Content-Type', 'image/' + image.format);
+            image.stream.pipe(res.fileCacheResponse);
+        });
 
         fileHelpers.installUploadHandler(router, '/upload/:type/:entityId', files.ReplacementBehavior.RENAME, null, 'file', resp => {
             return {
@@ -188,7 +206,7 @@ function getRouter(appType) {
             const lang = req.locale.language;
             if (lang && lang !== 'en') {
                 try {
-                    const file = path.join(__dirname, '..', '..', 'client', 'static', 'mosaico', 'lang', 'mosaico-' + lang + '.json');
+                    const file = path.join(__dirname, '..', '..', 'client', 'static', 'mosaico', 'rs', 'lang', 'mosaico-' + lang + '.json');
                     languageStrings = await fs.readFile(file, 'utf8');
                 } catch (err) {
                 }
@@ -201,7 +219,7 @@ function getRouter(appType) {
                 reactCsrfToken: req.csrfToken(),
                 mailtrainConfig: JSON.stringify(mailtrainConfig),
                 scriptFiles: [
-                    getSandboxUrl('mailtrain/mosaico-root.js')
+                    getSandboxUrl('client/mosaico-root.js')
                 ],
                 publicPath: getSandboxUrl()
             });
@@ -209,26 +227,48 @@ function getRouter(appType) {
 
     } else if (appType === AppType.TRUSTED || appType === AppType.PUBLIC) { // Mosaico editor loads the images from TRUSTED endpoint. This is hard to change because the index.html has to come from TRUSTED.
                                                                             // So we serve /mosaico/img under both endpoints. There is no harm in it.
-        router.getAsync('/img', async (req, res) => {
+
+        const trustedUrlPrefix = getTrustedUrl();
+        const publicUrlPrefix = getPublicUrl();
+        const imgCacheFileName = req => {
+            const method = req.query.method || '';
+            const params = req.query.params || '';
+            const src = req.query.src || '';
+
+            if (method === 'placeholder') {
+                return `${method}_${params}`;
+            } else if (src.startsWith(trustedUrlPrefix)) {
+                return `${src.substring(trustedUrlPrefix.length)}_${method}_${params}`;
+            } else if (src.startsWith(publicUrlPrefix)) {
+                return `${src.substring(publicUrlPrefix.length)}_${method}_${params}`;
+            } else {
+                return null;
+            }
+        };
+
+
+        router.getAsync('/img', await fileCache('mosaico-images', config.mosaico.fileCache.images, imgCacheFileName), async (req, res) => {
             const method = req.query.method;
             const params = req.query.params;
             let [width, height] = params.split(',');
             let image;
 
 
-            // FIXME - cache the generated files !!!
-
             if (method === 'placeholder') {
                 width = sanitizeSize(width, 1, 2048, 600, false);
                 height = sanitizeSize(height, 1, 2048, 300, false);
-                image = await placeholderImage(width, height);
+                try {
+                    image = await placeholderImage(width, height);
+                } catch (err) {
+                    console.log(err);
+                }
 
             } else {
-                width = sanitizeSize(width, 1, 2048, 600, false);
+                width = sanitizeSize(width, 1, 2048, 600, true);
                 height = sanitizeSize(height, 1, 2048, 300, true);
 
                 let filePath;
-                const url = req.query.src;
+                const url = req.query.src || '';
 
                 const mosaicoLegacyUrlPrefix = getTrustedUrl(`mosaico/uploads/`);
                 if (url.startsWith(mosaicoLegacyUrlPrefix)) {
@@ -242,7 +282,7 @@ function getRouter(appType) {
             }
 
             res.set('Content-Type', 'image/' + image.format);
-            image.stream.pipe(res);
+            image.stream.pipe(res.fileCacheResponse);
         });
     }
 

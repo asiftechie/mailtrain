@@ -21,6 +21,7 @@ const api = require('./routes/api');
 
 // These are routes for the new React-based client
 const reports = require('./routes/reports');
+const quickReports = require('./routes/quick-reports');
 const subscriptions = require('./routes/subscriptions');
 const subscription = require('./routes/subscription');
 const sandboxedMosaico = require('./routes/sandboxed-mosaico');
@@ -118,7 +119,7 @@ hbs.registerHelper('flash_messages', function () { // eslint-disable-line prefer
 
 
 
-function createApp(appType) {
+async function createApp(appType) {
     const app = express();
 
     function install404Fallback(url) {
@@ -233,10 +234,10 @@ function createApp(appType) {
     }
 
     useWith404Fallback('/static', express.static(path.join(__dirname, '..', 'client', 'static')));
-    useWith404Fallback('/mailtrain', express.static(path.join(__dirname, '..', 'client', 'dist')));
-    useWith404Fallback('/locales', express.static(path.join(__dirname, '..', 'client', 'locales')));
+    useWith404Fallback('/client', express.static(path.join(__dirname, '..', 'client', 'dist')));
 
     useWith404Fallback('/static-npm/fontawesome', express.static(path.join(__dirname, '..', 'client', 'node_modules', '@fortawesome', 'fontawesome-free', 'webfonts')));
+    useWith404Fallback('/static-npm/jquery.min.js', express.static(path.join(__dirname, '..', 'client', 'node_modules', 'jquery', 'dist', 'jquery.min.js')));
     useWith404Fallback('/static-npm/popper.min.js', express.static(path.join(__dirname, '..', 'client', 'node_modules', 'popper.js', 'dist', 'umd', 'popper.min.js')));
     useWith404Fallback('/static-npm/bootstrap.min.js', express.static(path.join(__dirname, '..', 'client', 'node_modules', 'bootstrap', 'dist', 'js', 'bootstrap.min.js')));
     useWith404Fallback('/static-npm/coreui.min.js', express.static(path.join(__dirname, '..', 'client', 'node_modules', '@coreui', 'coreui', 'dist', 'js', 'coreui.min.js')));
@@ -273,10 +274,10 @@ function createApp(appType) {
         useWith404Fallback('/files', files);
     }
 
-    useWith404Fallback('/mosaico', sandboxedMosaico.getRouter(appType));
-    useWith404Fallback('/ckeditor', sandboxedCKEditor.getRouter(appType));
-    useWith404Fallback('/grapesjs', sandboxedGrapesJS.getRouter(appType));
-    useWith404Fallback('/codeeditor', sandboxedCodeEditor.getRouter(appType));
+    useWith404Fallback('/mosaico', await sandboxedMosaico.getRouter(appType));
+    useWith404Fallback('/ckeditor', await sandboxedCKEditor.getRouter(appType));
+    useWith404Fallback('/grapesjs', await sandboxedGrapesJS.getRouter(appType));
+    useWith404Fallback('/codeeditor', await sandboxedCodeEditor.getRouter(appType));
 
     if (appType === AppType.TRUSTED || appType === AppType.SANDBOXED) {
         useWith404Fallback('/subscriptions', subscriptions);
@@ -285,6 +286,8 @@ function createApp(appType) {
         if (config.reports && config.reports.enabled === true) {
             useWith404Fallback('/rpts', reports); // This needs to be different from "reports", which is already used by the UI
         }
+
+        useWith404Fallback('/quick-rpts', quickReports);
 
         // API endpoints
         useWith404Fallback('/api', api);
@@ -318,95 +321,51 @@ function createApp(appType) {
         install404Fallback('/rest');
     }
 
-    app.use('/', index.getRouter(appType));
+    app.use('/', await index.getRouter(appType));
 
-    // Error handlers
-    if (app.get('env') === 'development' || app.get('env') === 'test') {
-        // development error handler
-        // will print stacktrace
-        app.use((err, req, res, next) => {
-            if (!err) {
-                return next();
+    app.use((err, req, res, next) => {
+        if (!err) {
+            return next();
+        }
+
+        if (req.needsRESTJSONResponse) {
+            const resp = {
+                message: err.message,
+                error: config.sendStacktracesToClient ? err : {}
+            };
+
+            if (err instanceof interoperableErrors.InteroperableError) {
+                resp.type = err.type;
+                resp.data = err.data;
             }
 
-            if (req.needsRESTJSONResponse) {
-                const resp = {
-                    message: err.message,
-                    error: err
-                };
+            log.verbose('HTTP', err);
+            res.status(err.status || 500).json(resp);
 
-                if (err instanceof interoperableErrors.InteroperableError) {
-                    resp.type = err.type;
-                    resp.data = err.data;
-                }
+        } else if (req.needsAPIJSONResponse) {
+            const resp = {
+                error: err.message || err,
+                data: []
+            };
 
-                res.status(err.status || 500).json(resp);
+            log.verbose('HTTP', err);
+            return res.status(err.status || 500).json(resp);
 
-            } else if (req.needsAPIJSONResponse) {
-                const resp = {
-                    error: err.message || err,
-                    data: []
-                };
+        } else {
+            // TODO: Render interoperable errors using a special client that does internationalization of the error message
 
-                return status(err.status || 500).json(resp);
-
+            if (err instanceof interoperableErrors.NotLoggedInError) {
+                return res.redirect(getTrustedUrl('/login?next=' + encodeURIComponent(req.originalUrl)));
             } else {
-                if (err instanceof interoperableErrors.NotLoggedInError) {
-                    return res.redirect(getTrustedUrl('/account/login?next=' + encodeURIComponent(req.originalUrl)));
-                } else {
-                    res.status(err.status || 500);
-                    res.render('error', {
-                        message: err.message,
-                        error: err
-                    });
-                }
-            }
-
-        });
-    } else {
-        // production error handler
-        // no stacktraces leaked to user
-        app.use((err, req, res, next) => {
-            if (!err) {
-                return next();
-            }
-
-            if (req.needsRESTJSONResponse) {
-                const resp = {
+                log.verbose('HTTP', err);
+                res.status(err.status || 500);
+                res.render('error', {
                     message: err.message,
-                    error: {}
-                };
-
-                if (err instanceof interoperableErrors.InteroperableError) {
-                    resp.type = err.type;
-                    resp.data = err.data;
-                }
-
-                res.status(err.status || 500).json(resp);
-
-            } else if (req.needsAPIJSONResponse) {
-                const resp = {
-                    error: err.message || err,
-                    data: []
-                };
-
-                return res.status(err.status || 500).json(resp);
-
-            } else {
-                // TODO: Render interoperable errors using a special client that does internationalization of the error message
-
-                if (err instanceof interoperableErrors.NotLoggedInError) {
-                    return res.redirect(getTrustedUrl('/account/login?next=' + encodeURIComponent(req.originalUrl)));
-                } else {
-                    res.status(err.status || 500);
-                    res.render('error', {
-                        message: err.message,
-                        error: {}
-                    });
-                }
+                    error: config.sendStacktracesToClient ? err : {}
+                });
             }
-        });
-    }
+        }
+    });
 
     return app;
 }

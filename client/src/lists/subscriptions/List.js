@@ -1,47 +1,25 @@
 'use strict';
 
 import React, {Component} from 'react';
-import PropTypes
-    from 'prop-types';
+import PropTypes from 'prop-types';
 import {withTranslation} from '../../lib/i18n';
-import {
-    NavButton,
-    requiresAuthenticatedUser,
-    Title,
-    Toolbar,
-    withPageHelpers
-} from '../../lib/page';
+import {LinkButton, requiresAuthenticatedUser, Title, Toolbar, withPageHelpers} from '../../lib/page';
 import {withErrorHandling} from '../../lib/error-handling';
 import {Table} from '../../lib/table';
 import {SubscriptionStatus} from '../../../../shared/lists';
-import moment
-    from 'moment';
-import {
-    Dropdown,
-    Form,
-    withForm
-} from '../../lib/form';
-import {
-    Button,
-    Icon
-} from "../../lib/bootstrap-components";
+import moment from 'moment';
+import {Dropdown, Form, withForm} from '../../lib/form';
+import {Button, Icon} from "../../lib/bootstrap-components";
 import {HTTPMethod} from '../../lib/axios';
-import {
-    getFieldTypes,
-    getSubscriptionStatusLabels
-} from './helpers';
-import {
-    getPublicUrl,
-    getUrl
-} from "../../lib/urls";
+import {getFieldTypes, getSubscriptionStatusLabels} from './helpers';
+import {getPublicUrl, getUrl} from "../../lib/urls";
 import {
     tableAddDeleteButton,
     tableAddRestActionButton,
     tableRestActionDialogInit,
     tableRestActionDialogRender
 } from "../../lib/modals";
-import listStyles
-    from "../styles.scss";
+import listStyles from "../styles.scss";
 import {withComponentMixins} from "../../lib/decorator-helpers";
 
 @withComponentMixins([
@@ -64,6 +42,7 @@ export default class List extends Component {
         this.fieldTypes = getFieldTypes(t);
 
         this.initForm({
+            leaveConfirmation: false,
             onChange: {
                 segment: (newState, key, oldValue, value) => {
                     this.navigateTo(`/lists/${this.props.list.id}/subscriptions` + (value ? '?segment=' + value : ''));
@@ -78,18 +57,21 @@ export default class List extends Component {
         segmentId: PropTypes.string
     }
 
-    updateSegmentSelection(props) {
+    componentDidMount() {
         this.populateFormValues({
-            segment: props.segmentId || ''
+            segment: this.props.segmentId || ''
         });
     }
 
-    componentDidMount() {
-        this.updateSegmentSelection(this.props);
-    }
+    componentDidUpdate() {
+        const segmentId = this.props.segmentId || '';
 
-    componentWillReceiveProps(nextProps) {
-        this.updateSegmentSelection(nextProps);
+        if (this.getFormValue('segment') !== segmentId) {
+            // Populate is used here because it does not invoke onChange
+            this.populateFormValues({
+                segment: segmentId
+            });
+        }
     }
 
     render() {
@@ -185,7 +167,7 @@ export default class List extends Component {
                 <Toolbar>
                     <a href={getPublicUrl(`subscription/${this.props.list.cid}`, {withLocale: true})}><Button label={t('subscriptionForm')} className="btn-secondary"/></a>
                     <a href={getUrl(`subscriptions/export/${this.props.list.id}/`+ (this.props.segmentId || 0))}><Button label={t('exportAsCsv')} className="btn-primary"/></a>
-                    <NavButton linkTo={`/lists/${this.props.list.id}/subscriptions/create`} className="btn-primary" icon="plus" label={t('addSubscriber')}/>
+                    <LinkButton to={`/lists/${this.props.list.id}/subscriptions/create`} className="btn-primary" icon="plus" label={t('addSubscriber')}/>
                 </Toolbar>
 
                 <Title>{t('subscribers')}</Title>

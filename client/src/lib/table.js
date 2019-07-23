@@ -1,29 +1,21 @@
 'use strict';
 
 import React, {Component} from 'react';
-import ReactDOMServer
-    from 'react-dom/server';
-import PropTypes
-    from 'prop-types';
+import ReactDOMServer from 'react-dom/server';
+import PropTypes from 'prop-types';
 import {withTranslation} from './i18n';
 
-import jQuery
-    from 'jquery';
+import jQuery from 'jquery';
 
 import 'datatables.net';
 import 'datatables.net-bs4';
 import 'datatables.net-bs4/css/dataTables.bootstrap4.css';
 
-import axios
-    from './axios';
+import axios from './axios';
 
 import {withPageHelpers} from './page'
-import {
-    withAsyncErrorHandler,
-    withErrorHandling
-} from './error-handling';
-import styles
-    from "./styles.scss";
+import {withAsyncErrorHandler, withErrorHandling} from './error-handling';
+import styles from "./styles.scss";
 import {getUrl} from "./urls";
 import {withComponentMixins} from "./decorator-helpers";
 
@@ -276,7 +268,12 @@ class Table extends Component {
 
         const dtOptions = {
             columns,
-            pageLength: this.props.pageLength
+            autoWidth: false,
+            pageLength: this.props.pageLength,
+            dom: // This overrides Bootstrap 4 settings. It may need to be updated if there are updates in the DataTables Bootstrap 4 plugin.
+                "<'row'<'col-sm-12 col-md-6'l><'col-sm-12 col-md-6'f>>" +
+                "<'row'<'col-sm-12'<'" + styles.dataTableTable + "'tr>>>" +
+                "<'row'<'col-sm-12 col-md-5'i><'col-sm-12 col-md-7'p>>"
         };
 
         const self = this;

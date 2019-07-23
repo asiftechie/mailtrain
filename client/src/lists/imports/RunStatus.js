@@ -1,25 +1,15 @@
 'use strict';
 
 import React, {Component} from 'react';
-import PropTypes
-    from 'prop-types';
+import PropTypes from 'prop-types';
 import {withTranslation} from '../../lib/i18n';
-import {
-    requiresAuthenticatedUser,
-    Title,
-    withPageHelpers
-} from '../../lib/page';
+import {requiresAuthenticatedUser, Title, withPageHelpers} from '../../lib/page';
 import {AlignedRow} from '../../lib/form';
-import {
-    withAsyncErrorHandler,
-    withErrorHandling
-} from '../../lib/error-handling';
+import {withAsyncErrorHandler, withErrorHandling} from '../../lib/error-handling';
 import {getImportLabels} from './helpers';
-import axios
-    from "../../lib/axios";
+import axios from "../../lib/axios";
 import {getUrl} from "../../lib/urls";
-import moment
-    from "moment";
+import moment from "moment";
 import {runStatusInProgress} from "../../../../shared/imports";
 import {Table} from "../../lib/table";
 import {withComponentMixins} from "../../lib/decorator-helpers";
@@ -92,7 +82,7 @@ export default class Status extends Component {
         const columns = [
             { data: 1, title: t('row') },
             { data: 2, title: t('email') },
-            { data: 3, title: t('reason') }
+            { data: 3, title: t('reason'), render: data => t(...JSON.parse(data)) }
         ];
 
         return (

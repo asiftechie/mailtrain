@@ -3,27 +3,13 @@
 import React, {Component} from 'react';
 import {withTranslation} from '../lib/i18n';
 import {Icon} from '../lib/bootstrap-components';
-import {
-    NavButton,
-    requiresAuthenticatedUser,
-    Title,
-    Toolbar,
-    withPageHelpers
-} from '../lib/page';
-import {
-    withAsyncErrorHandler,
-    withErrorHandling
-} from '../lib/error-handling';
+import {LinkButton, requiresAuthenticatedUser, Title, Toolbar, withPageHelpers} from '../lib/page';
+import {withAsyncErrorHandler, withErrorHandling} from '../lib/error-handling';
 import {Table} from '../lib/table';
-import moment
-    from 'moment';
+import moment from 'moment';
 import {getTemplateTypes} from './helpers';
 import {checkPermissions} from "../lib/permissions";
-import {
-    tableAddDeleteButton,
-    tableRestActionDialogInit,
-    tableRestActionDialogRender
-} from "../lib/modals";
+import {tableAddDeleteButton, tableRestActionDialogInit, tableRestActionDialogRender} from "../lib/modals";
 import {withComponentMixins} from "../lib/decorator-helpers";
 
 @withComponentMixins([
@@ -117,10 +103,10 @@ export default class List extends Component {
                 {tableRestActionDialogRender(this)}
                 <Toolbar>
                     {this.state.createPermitted &&
-                       <NavButton linkTo="/templates/create" className="btn-primary" icon="plus" label={t('createTemplate')}/>
+                       <LinkButton to="/templates/create" className="btn-primary" icon="plus" label={t('createTemplate')}/>
                     }
                     {this.state.mosaicoTemplatesPermitted &&
-                        <NavButton linkTo="/templates/mosaico" className="btn-primary" label={t('mosaicoTemplates')}/>
+                        <LinkButton to="/templates/mosaico" className="btn-primary" label={t('mosaicoTemplates')}/>
                     }
                 </Toolbar>
 

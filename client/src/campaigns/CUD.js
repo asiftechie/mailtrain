@@ -1,15 +1,9 @@
 'use strict';
 
 import React, {Component} from 'react';
-import PropTypes
-    from 'prop-types';
+import PropTypes from 'prop-types';
 import {withTranslation} from '../lib/i18n';
-import {
-    NavButton,
-    requiresAuthenticatedUser,
-    Title,
-    withPageHelpers
-} from '../lib/page'
+import {LinkButton, requiresAuthenticatedUser, Title, withPageHelpers} from '../lib/page'
 import {
     AlignedRow,
     Button,
@@ -17,45 +11,27 @@ import {
     CheckBox,
     Dropdown,
     Fieldset,
+    filterData,
     Form,
     FormSendMethod,
     InputField,
     StaticField,
     TableSelect,
     TextArea,
-    withForm
+    withForm,
+    withFormErrorHandlers
 } from '../lib/form';
-import {
-    withAsyncErrorHandler,
-    withErrorHandling
-} from '../lib/error-handling';
-import {
-    NamespaceSelect,
-    validateNamespace
-} from '../lib/namespace';
+import {withAsyncErrorHandler, withErrorHandling} from '../lib/error-handling';
+import {NamespaceSelect, validateNamespace} from '../lib/namespace';
 import {DeleteModalDialog} from "../lib/modals";
-import mailtrainConfig
-    from 'mailtrainConfig';
-import {
-    getTemplateTypes,
-    getTypeForm,
-    ResourceType
-} from '../templates/helpers';
-import axios
-    from '../lib/axios';
-import styles
-    from "../lib/styles.scss";
-import campaignsStyles
-    from "./styles.scss";
+import mailtrainConfig from 'mailtrainConfig';
+import {getTemplateTypes, getTypeForm, ResourceType} from '../templates/helpers';
+import axios from '../lib/axios';
+import styles from "../lib/styles.scss";
+import campaignsStyles from "./styles.scss";
 import {getUrl} from "../lib/urls";
-import {
-    campaignOverridables,
-    CampaignSource,
-    CampaignStatus,
-    CampaignType
-} from "../../../shared/campaigns";
-import moment
-    from 'moment';
+import {campaignOverridables, CampaignSource, CampaignStatus, CampaignType} from "../../../shared/campaigns";
+import moment from 'moment';
 import {getMailerTypes} from "../send-configurations/helpers";
 import {getCampaignLabels} from "./helpers";
 import {withComponentMixins} from "../lib/decorator-helpers";
@@ -119,9 +95,7 @@ export default class CUD extends Component {
             onChange: {
                 send_configuration: ::this.onSendConfigurationChanged
             },
-            onChangeBeforeValidation: {
-                data_sourceCustom_type: ::this.onCustomTemplateTypeChanged
-            }
+            onChangeBeforeValidation: ::this.onFormChangeBeforeValidation
         });
     }
 
@@ -137,9 +111,18 @@ export default class CUD extends Component {
         return id;
     }
 
-    onCustomTemplateTypeChanged(mutStateData, key, oldType, type) {
-        if (type) {
-            this.templateTypes[type].afterTypeChange(mutStateData);
+    onFormChangeBeforeValidation(mutStateData, key, oldValue, newValue) {
+        let match;
+
+        if (key === undefined || key === 'data_sourceCustom_type') {
+            if (newValue) {
+                this.templateTypes[newValue].afterTypeChange(mutStateData);
+            }
+        }
+
+        if (key === undefined || (match = key.match(/^(lists_[0-9]+_)list$/))) {
+            const prefix = match[1];
+            mutStateData.setIn([prefix + 'segment', 'value'], null);
         }
     }
 
@@ -164,43 +147,112 @@ export default class CUD extends Component {
         }
     }
 
+    getFormValuesMutator(data) {
+        // The source cannot be changed once campaign is created. Thus we don't have to initialize fields for all other sources
+        if (data.source === CampaignSource.TEMPLATE) {
+            data.data_sourceTemplate = data.data.sourceTemplate;
+        }
+
+        if (data.source === CampaignSource.URL) {
+            data.data_sourceUrl = data.data.sourceUrl;
+        }
+
+        if (data.type === CampaignType.RSS) {
+            data.data_feedUrl = data.data.feedUrl;
+        }
+
+        for (const overridable of campaignOverridables) {
+            data[overridable + '_overriden'] = data[overridable + '_override'] !== null;
+        }
+
+        const lsts = [];
+        for (const lst of data.lists) {
+            const lstUid = this.getNextListEntryId();
+
+            const prefix = 'lists_' + lstUid + '_';
+
+            data[prefix + 'list'] = lst.list;
+            data[prefix + 'segment'] = lst.segment;
+            data[prefix + 'useSegmentation'] = !!lst.segment;
+
+            lsts.push(lstUid);
+        }
+        data.lists = lsts;
+
+        // noinspection JSIgnoredPromiseFromCall
+        this.fetchSendConfiguration(data.send_configuration);
+    }
+
+    submitFormValuesMutator(data) {
+        const isEdit = !!this.props.entity;
+
+        data.source = Number.parseInt(data.source);
+
+        data.data = {};
+        if (data.source === CampaignSource.TEMPLATE || data.source === CampaignSource.CUSTOM_FROM_TEMPLATE) {
+            data.data.sourceTemplate = data.data_sourceTemplate;
+        }
+
+        if (data.source === CampaignSource.CUSTOM_FROM_CAMPAIGN) {
+            data.data.sourceCampaign = data.data_sourceCampaign;
+        }
+
+        if (!isEdit && data.source === CampaignSource.CUSTOM) {
+            this.templateTypes[data.data_sourceCustom_type].beforeSave(data);
+
+            data.data.sourceCustom = {
+                type: data.data_sourceCustom_type,
+                data: data.data_sourceCustom_data,
+                html: data.data_sourceCustom_html,
+                text: data.data_sourceCustom_text
+            }
+        }
+
+        if (data.source === CampaignSource.URL) {
+            data.data.sourceUrl = data.data_sourceUrl;
+        }
+
+        if (data.type === CampaignType.RSS) {
+            data.data.feedUrl = data.data_feedUrl;
+        }
+
+        for (const overridable of campaignOverridables) {
+            if (!data[overridable + '_overriden']) {
+                data[overridable + '_override'] = null;
+            }
+            delete data[overridable + '_overriden'];
+        }
+
+        const lsts = [];
+        for (const lstUid of data.lists) {
+            const prefix = 'lists_' + lstUid + '_';
+
+            const useSegmentation = data[prefix + 'useSegmentation'] && (data.type === CampaignType.REGULAR || data.type === CampaignType.RSS);
+
+            lsts.push({
+                list: data[prefix + 'list'],
+                segment: useSegmentation ? data[prefix + 'segment'] : null
+            });
+        }
+        data.lists = lsts;
+
+        for (const key in data) {
+            if (key.startsWith('data_') || key.startsWith('lists_')) {
+                delete data[key];
+            }
+        }
+
+        return filterData(data, [
+            'name', 'description', 'segment', 'namespace', 'send_configuration',
+            'from_name_override', 'from_email_override', 'reply_to_override', 'subject_override',
+            'data', 'click_tracking_disabled', 'open_tracking_disabled', 'unsubscribe_url',
+            'type', 'source', 'parent', 'lists'
+        ]);
+    }
+
     componentDidMount() {
         if (this.props.entity) {
-            this.getFormValuesFromEntity(this.props.entity, data => {
-                // The source cannot be changed once campaign is created. Thus we don't have to initialize fields for all other sources
-                if (data.source === CampaignSource.TEMPLATE) {
-                    data.data_sourceTemplate = data.data.sourceTemplate;
-                }
-
-                if (data.source === CampaignSource.URL) {
-                    data.data_sourceUrl = data.data.sourceUrl;
-                }
-
-                if (data.type === CampaignType.RSS) {
-                    data.data_feedUrl = data.data.feedUrl;
-                }
-
-                for (const overridable of campaignOverridables) {
-                    data[overridable + '_overriden'] = data[overridable + '_override'] !== null;
-                }
-
-                const lsts = [];
-                for (const lst of data.lists) {
-                    const lstUid = this.getNextListEntryId();
-
-                    const prefix = 'lists_' + lstUid + '_';
-
-                    data[prefix + 'list'] = lst.list;
-                    data[prefix + 'segment'] = lst.segment;
-                    data[prefix + 'useSegmentation'] = !!lst.segment;
-
-                    lsts.push(lstUid);
-                }
-                data.lists = lsts;
-
-                // noinspection JSIgnoredPromiseFromCall
-                this.fetchSendConfiguration(data.send_configuration);
-            });
+            this.getFormValuesFromEntity(this.props.entity);
 
             if (this.props.entity.status === CampaignStatus.SENDING) {
                 this.disableForm();
@@ -337,8 +389,14 @@ export default class CUD extends Component {
         validateNamespace(t, state);
     }
 
-    async submitHandler() {
-        const isEdit = !!this.props.entity;
+    static AfterSubmitAction = {
+        STAY: 0,
+        LEAVE: 1,
+        STATUS: 2
+    }
+
+    @withFormErrorHandlers
+    async submitHandler(afterSubmitAction) {
         const t = this.props.t;
 
         let sendMethod, url;
@@ -353,72 +411,33 @@ export default class CUD extends Component {
         this.disableForm();
         this.setFormStatusMessage('info', t('saving'));
 
-        const submitResponse = await this.validateAndSendFormValuesToURL(sendMethod, url, data => {
-            data.source = Number.parseInt(data.source);
+        const submitResult = await this.validateAndSendFormValuesToURL(sendMethod, url);
 
-            data.data = {};
-            if (data.source === CampaignSource.TEMPLATE || data.source === CampaignSource.CUSTOM_FROM_TEMPLATE) {
-                data.data.sourceTemplate = data.data_sourceTemplate;
-            }
-
-            if (data.source === CampaignSource.CUSTOM_FROM_CAMPAIGN) {
-                data.data.sourceCampaign = data.data_sourceCampaign;
-            }
-
-            if (!isEdit && data.source === CampaignSource.CUSTOM) {
-                this.templateTypes[data.data_sourceCustom_type].beforeSave(data);
-
-                data.data.sourceCustom = {
-                    type: data.data_sourceCustom_type,
-                    data: data.data_sourceCustom_data,
-                    html: data.data_sourceCustom_html,
-                    text: data.data_sourceCustom_text
-                }
-            }
-
-            if (data.source === CampaignSource.URL) {
-                data.data.sourceUrl = data.data_sourceUrl;
-            }
-
-            if (data.type === CampaignType.RSS) {
-                data.data.feedUrl = data.data_feedUrl;
-            }
-
-            for (const overridable of campaignOverridables) {
-                if (!data[overridable + '_overriden']) {
-                    data[overridable + '_override'] = null;
-                }
-                delete data[overridable + '_overriden'];
-            }
-
-            const lsts = [];
-            for (const lstUid of data.lists) {
-                const prefix = 'lists_' + lstUid + '_';
-
-                const useSegmentation = data[prefix + 'useSegmentation'] && (data.type === CampaignType.REGULAR || data.type === CampaignType.RSS);
-
-                lsts.push({
-                    list: data[prefix + 'list'],
-                    segment: useSegmentation ? data[prefix + 'segment'] : null
-                });
-            }
-            data.lists = lsts;
-
-            for (const key in data) {
-                if (key.startsWith('data_') || key.startsWith('lists_')) {
-                    delete data[key];
-                }
-            }
-        });
-
-        if (submitResponse) {
-            const sourceTypeKey = Number.parseInt(this.getFormValue('source'));
+        if (submitResult) {
             if (this.props.entity) {
-                this.navigateToWithFlashMessage('/campaigns', 'success', t('campaignSaved'));
-            } else if (sourceTypeKey === CampaignSource.CUSTOM || sourceTypeKey === CampaignSource.CUSTOM_FROM_TEMPLATE || sourceTypeKey === CampaignSource.CUSTOM_FROM_CAMPAIGN) {
-                this.navigateToWithFlashMessage(`/campaigns/${submitResponse}/content`, 'success', t('campaignSaved'));
+                if (afterSubmitAction === CUD.AfterSubmitAction.STATUS) {
+                    this.navigateToWithFlashMessage(`/campaigns/${this.props.entity.id}/status`, 'success', t('campaignUpdated'));
+                } else if (afterSubmitAction === CUD.AfterSubmitAction.LEAVE) {
+                    this.navigateToWithFlashMessage('/campaigns', 'success', t('campaignUpdated'));
+                } else {
+                    await this.getFormValuesFromURL(`rest/campaigns-settings/${this.props.entity.id}`);
+                    this.enableForm();
+                    this.setFormStatusMessage('success', t('campaignUpdated'));
+                }
             } else {
-                this.navigateToWithFlashMessage(`/campaigns/${submitResponse}/status`, 'success', t('campaignSaved'));
+                const sourceTypeKey = Number.parseInt(this.getFormValue('source'));
+
+                if (sourceTypeKey === CampaignSource.CUSTOM || sourceTypeKey === CampaignSource.CUSTOM_FROM_TEMPLATE || sourceTypeKey === CampaignSource.CUSTOM_FROM_CAMPAIGN) {
+                    this.navigateToWithFlashMessage(`/campaigns/${submitResult}/content`, 'success', t('campaignCreated'));
+                } else {
+                    if (afterSubmitAction === CUD.AfterSubmitAction.STATUS) {
+                        this.navigateToWithFlashMessage(`/campaigns/${submitResult}/status`, 'success', t('campaignCreated'));
+                    } else if (afterSubmitAction === CUD.AfterSubmitAction.LEAVE) {
+                        this.navigateToWithFlashMessage(`/campaigns`, 'success', t('campaignCreated'));
+                    } else {
+                        this.navigateToWithFlashMessage(`/campaigns/${submitResult}/edit`, 'success', t('campaignCreated'));
+                    }
+                }
             }
         } else {
             this.enableForm();
@@ -583,13 +602,21 @@ export default class CUD extends Component {
                 sendSettings = [];
 
                 const addOverridable = (id, label) => {
-                    sendSettings.push(<CheckBox key={id + '_overriden'} id={id + '_overriden'} label={label} text={t('override')}/>);
-
-                    if (this.getFormValue(id + '_overriden')) {
-                        sendSettings.push(<InputField key={id + '_override'} id={id + '_override'}/>);
-                    } else {
+                    if(this.state.sendConfiguration[id + '_overridable']){
+                        if (this.getFormValue(id + '_overriden')) {
+                            sendSettings.push(<InputField label={t(label)} key={id + '_override'} id={id + '_override'}/>);
+                        } else {
+                            sendSettings.push(
+                                <StaticField key={id + '_original'} label={t(label)} id={id + '_original'} className={styles.formDisabled}>
+                                    {this.state.sendConfiguration[id]}
+                                </StaticField>
+                            );
+                        }
+                        sendSettings.push(<CheckBox key={id + '_overriden'} id={id + '_overriden'} text={t('override')} className={campaignsStyles.overrideCheckbox}/>);
+                    }
+                    else{
                         sendSettings.push(
-                            <StaticField key={id + '_original'} id={id + '_original'} className={styles.formDisabled}>
+                            <StaticField key={id + '_original'} label={t(label)} id={id + '_original'} className={styles.formDisabled}>
                                 {this.state.sendConfiguration[id]}
                             </StaticField>
                         );
@@ -666,17 +693,6 @@ export default class CUD extends Component {
             templateEdit = <InputField id="data_sourceUrl" label={t('renderUrl')} help={t('ifAMessageIsSentThenThisUrlWillBePosTed')}/>
         }
 
-        let saveButtonLabel;
-        if (isEdit) {
-            saveButtonLabel = t('save');
-        } else if (sourceTypeKey === CampaignSource.CUSTOM || sourceTypeKey === CampaignSource.CUSTOM_FROM_TEMPLATE || sourceTypeKey === CampaignSource.CUSTOM_FROM_CAMPAIGN) {
-            saveButtonLabel = t('saveAndEditContent');
-        } else {
-            saveButtonLabel = t('saveCampaignAndGoToStatus');
-        }
-
-
-
         return (
             <div>
                 {canDelete &&
@@ -719,26 +735,46 @@ export default class CUD extends Component {
 
                     <hr/>
 
-                    <TableSelect id="send_configuration" label={t('sendConfiguration')} withHeader dropdown dataUrl='rest/send-configurations-table' columns={sendConfigurationsColumns} selectionLabelIndex={1} />
+                    <Fieldset label={t('sendSettings')}>
 
-                    {sendSettings}
+                        <TableSelect id="send_configuration" label={t('sendConfiguration')} withHeader dropdown dataUrl='rest/send-configurations-table' columns={sendConfigurationsColumns} selectionLabelIndex={1} />
 
-                    <InputField id="unsubscribe_url" label={t('customUnsubscribeUrl')}/>
+                        {sendSettings}
+
+                        <InputField id="unsubscribe_url" label={t('customUnsubscribeUrl')}/>
+                    </Fieldset>
 
                     <hr/>
 
-                    <CheckBox id="open_tracking_disabled" text={t('disableOpenedTracking')}/>
-                    <CheckBox id="click_tracking_disabled" text={t('disableClickedTracking')}/>
+                    <Fieldset label={t('tracking')}>
+                        <CheckBox id="open_tracking_disabled" text={t('disableOpenedTracking')}/>
+                        <CheckBox id="click_tracking_disabled" text={t('disableClickedTracking')}/>
+                    </Fieldset>
 
-                    {sourceEdit && <hr/> }
+                    {sourceEdit &&
+                    <>
+                        <hr/>
+                        <Fieldset label={t('template')}>
+                            {sourceEdit}
+                        </Fieldset>
+                    </>
+                    }
 
-                    {sourceEdit}
+
 
                     {templateEdit}
 
                     <ButtonRow>
-                        <Button type="submit" className="btn-primary" icon="check" label={saveButtonLabel}/>
-                        {canDelete && <NavButton className="btn-danger" icon="trash-alt" label={t('delete')} linkTo={`/campaigns/${this.props.entity.id}/delete`}/> }
+                        {!isEdit && (sourceTypeKey === CampaignSource.CUSTOM || sourceTypeKey === CampaignSource.CUSTOM_FROM_TEMPLATE || sourceTypeKey === CampaignSource.CUSTOM_FROM_CAMPAIGN) ?
+                            <Button type="submit" className="btn-primary" icon="check" label={t('saveAndEditContent')}/>
+                        :
+                            <>
+                                <Button type="submit" className="btn-primary" icon="check" label={t('save')}/>
+                                <Button type="submit" className="btn-primary" icon="check" label={t('saveAndLeave')} onClickAsync={async () => await this.submitHandler(CUD.AfterSubmitAction.LEAVE)}/>
+                                <Button type="submit" className="btn-primary" icon="check" label={t('saveAndGoToStatus')} onClickAsync={async () => await this.submitHandler(CUD.AfterSubmitAction.STATUS)}/>
+                            </>
+                        }
+                        {canDelete && <LinkButton className="btn-danger" icon="trash-alt" label={t('delete')} to={`/campaigns/${this.props.entity.id}/delete`}/> }
                     </ButtonRow>
                 </Form>
             </div>

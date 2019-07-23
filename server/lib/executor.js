@@ -1,18 +1,13 @@
 'use strict';
 
-const fork = require('child_process').fork;
+const fork = require('./fork').fork;
 const log = require('./log');
 const path = require('path');
+const bluebird = require('bluebird');
 
 const requestCallbacks = {};
 let messageTid = 0;
 let executorProcess;
-
-module.exports = {
-    spawn,
-    start,
-    stop
-};
 
 function spawn(callback) {
     log.verbose('Executor', 'Spawning executor process');
@@ -54,7 +49,7 @@ function spawn(callback) {
     });
 
     executorProcess.on('close', (code, signal) => {
-        log.info('Executor', 'Executor process exited with code %s signal %s', code, signal);
+        log.error('Executor', 'Executor process exited with code %s signal %s', code, signal);
     });
 }
 
@@ -81,3 +76,6 @@ function stop(tid) {
     });
 }
 
+module.exports.spawn = bluebird.promisify(spawn);
+module.exports.start = start;
+module.exports.stop = stop;

@@ -1,47 +1,37 @@
 'use strict';
 
 import React, {Component} from 'react';
-import PropTypes
-    from 'prop-types';
+import PropTypes from 'prop-types';
 import {Trans} from 'react-i18next';
 import {withTranslation} from '../lib/i18n';
-import {
-    NavButton,
-    requiresAuthenticatedUser,
-    Title,
-    withPageHelpers
-} from '../lib/page'
+import {LinkButton, requiresAuthenticatedUser, Title, withPageHelpers} from '../lib/page'
 import {
     Button,
     ButtonRow,
     CheckBox,
     Fieldset,
+    filterData,
     Form,
     FormSendMethod,
     InputField,
     StaticField,
     TextArea,
-    withForm
+    withForm,
+    withFormErrorHandlers
 } from '../lib/form';
 import {withErrorHandling} from '../lib/error-handling';
-import {
-    NamespaceSelect,
-    validateNamespace
-} from '../lib/namespace';
+import {NamespaceSelect, validateNamespace} from '../lib/namespace';
 import {DeleteModalDialog} from "../lib/modals";
 
 import {getMailerTypes} from "./helpers";
 
-import {
-    getSystemSendConfigurationId,
-    MailerType
-} from "../../../shared/send-configurations";
+import {getSystemSendConfigurationId, MailerType} from "../../../shared/send-configurations";
 
-import styles
-    from "../lib/styles.scss";
+import styles from "../lib/styles.scss";
 
-import mailtrainConfig
-    from 'mailtrainConfig';
+import sendConfigurationsStyles from "./styles.scss";
+
+import mailtrainConfig from 'mailtrainConfig';
 import {withComponentMixins} from "../lib/decorator-helpers";
 
 
@@ -80,15 +70,28 @@ export default class CUD extends Component {
     }
 
 
+    getFormValuesMutator(data) {
+        this.mailerTypes[data.mailer_type].afterLoad(data);
+        data.verpEnabled = !!data.verp_hostname;
+        data.verp_hostname = data.verp_hostname || '';
+        data.verp_disable_sender_header = data.verpEnabled ? !!data.verp_disable_sender_header : false;
+    }
+
+    submitFormValuesMutator(data) {
+        this.mailerTypes[data.mailer_type].beforeSave(data);
+        if (!data.verpEnabled) {
+            data.verp_hostname = null;
+            data.verp_disable_sender_header = false;
+        }
+
+        return filterData(data, ['name', 'description', 'from_email', 'from_email_overridable', 'from_name',
+            'from_name_overridable', 'reply_to', 'reply_to_overridable', 'subject', 'subject_overridable', 'x_mailer',
+            'verp_hostname', 'verp_disable_sender_header', 'mailer_type', 'mailer_settings', 'namespace']);
+    }
+
     componentDidMount() {
         if (this.props.entity) {
-            this.getFormValuesFromEntity(this.props.entity, data => {
-                this.mailerTypes[data.mailer_type].afterLoad(data);
-                data.verpEnabled = !!data.verp_hostname;
-                data.verp_hostname = data.verp_hostname || '';
-                data.verp_disable_sender_header = data.verpEnabled ? !!data.verp_disable_sender_header : false;
-            });
-
+            this.getFormValuesFromEntity(this.props.entity);
         } else {
             this.populateFormValues({
                 name: '',
@@ -142,7 +145,8 @@ export default class CUD extends Component {
         }
     }
 
-    async submitHandler() {
+    @withFormErrorHandlers
+    async submitHandler(submitAndLeave) {
         const t = this.props.t;
 
         let sendMethod, url;
@@ -157,16 +161,24 @@ export default class CUD extends Component {
         this.disableForm();
         this.setFormStatusMessage('info', t('saving'));
 
-        const submitSuccessful = await this.validateAndSendFormValuesToURL(sendMethod, url, data => {
-            this.mailerTypes[data.mailer_type].beforeSave(data);
-            if (!data.verpEnabled) {
-                data.verp_hostname = null;
-                data.verp_disable_sender_header = false;
-            }
-        });
+        const submitResult = await this.validateAndSendFormValuesToURL(sendMethod, url);
 
-        if (submitSuccessful) {
-            this.navigateToWithFlashMessage('/send-configurations', 'success', t('sendConfigurationSaved'));
+        if (submitResult) {
+            if (this.props.entity) {
+                if (submitAndLeave) {
+                    this.navigateToWithFlashMessage('/send-configurations', 'success', t('sendConfigurationUpdated'));
+                } else {
+                    await this.getFormValuesFromURL(`rest/send-configurations-private/${this.props.entity.id}`);
+                    this.enableForm();
+                    this.setFormStatusMessage('success', t('sendConfigurationUpdated'));
+                }
+            } else {
+                if (submitAndLeave) {
+                    this.navigateToWithFlashMessage('/send-configurations', 'success', t('sendConfigurationCreated'));
+                } else {
+                    this.navigateToWithFlashMessage(`/send-configurations/${submitResult}/edit`, 'success', t('sendConfigurationCreated'));
+                }
+            }
         } else {
             this.enableForm();
             this.setFormStatusMessage('warning', t('thereAreErrorsInTheFormPleaseFixThemAnd'));
@@ -216,13 +228,13 @@ export default class CUD extends Component {
 
                     <Fieldset label={t('emailHeader')}>
                         <InputField id="from_email" label={t('defaultFromEmail')}/>
-                        <CheckBox id="from_email_overridable" text={t('overridable')}/>
+                        <CheckBox id="from_email_overridable" text={t('overridable')} className={sendConfigurationsStyles.overridableCheckbox}/>
                         <InputField id="from_name" label={t('defaultFromName')}/>
-                        <CheckBox id="from_name_overridable" text={t('overridable')}/>
+                        <CheckBox id="from_name_overridable" text={t('overridable')} className={sendConfigurationsStyles.overridableCheckbox}/>
                         <InputField id="reply_to" label={t('defaultReplytoEmail')}/>
-                        <CheckBox id="reply_to_overridable" text={t('overridable')}/>
+                        <CheckBox id="reply_to_overridable" text={t('overridable')} className={sendConfigurationsStyles.overridableCheckbox}/>
                         <InputField id="subject" label={t('subject')}/>
-                        <CheckBox id="subject_overridable" text={t('overridable')}/>
+                        <CheckBox id="subject_overridable" text={t('overridable')} className={sendConfigurationsStyles.overridableCheckbox}/>
                         <InputField id="x_mailer" label={t('xMailer')}/>
                     </Fieldset>
 
@@ -248,8 +260,9 @@ export default class CUD extends Component {
 
                     <ButtonRow>
                         <Button type="submit" className="btn-primary" icon="check" label={t('save')}/>
+                        <Button type="submit" className="btn-primary" icon="check" label={t('saveAndLeave')} onClickAsync={async () => await this.submitHandler(true)}/>
                         {canDelete &&
-                            <NavButton className="btn-danger" icon="trash-alt" label={t('delete')} linkTo={`/send-configurations/${this.props.entity.id}/delete`}/>
+                            <LinkButton className="btn-danger" icon="trash-alt" label={t('delete')} to={`/send-configurations/${this.props.entity.id}/delete`}/>
                         }
                     </ButtonRow>
                 </Form>

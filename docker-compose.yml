@@ -22,7 +22,7 @@ services:
     - mongo-data:/data/db
 
   mailtrain:
-    build: .
+    image: mailtrain/mailtrain:latest
     command: ${MAILTRAIN_SETTINGS}
     ports:
     - "3000:3000"
@@ -30,12 +30,10 @@ services:
     - "3004:3004"
     volumes:
     - mailtrain-files:/app/server/files
-    - mailtrain-reports:/app/protected/reports
 
 volumes:
   mysql-data:
   redis-data:
   mongo-data:
   mailtrain-files:
-  mailtrain-reports:
 

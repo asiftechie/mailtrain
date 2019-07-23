@@ -7,7 +7,7 @@ const { AppType } = require('../../shared/app');
 
 const routerFactory = require('../lib/router-async');
 
-function getRouter(appType) {
+async function getRouter(appType) {
     const router = routerFactory.create();
 
     if (appType === AppType.TRUSTED) {
@@ -21,7 +21,7 @@ function getRouter(appType) {
                 reactCsrfToken: req.csrfToken(),
                 mailtrainConfig: JSON.stringify(mailtrainConfig),
                 scriptFiles: [
-                    getTrustedUrl('mailtrain/root.js')
+                    getTrustedUrl('client/root.js')
                 ],
                 publicPath: getTrustedUrl()
             });

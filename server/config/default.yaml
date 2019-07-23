@@ -30,9 +30,9 @@ gdpr:
 
 # Enabled HTML editors
 editors:
-- grapesjs
 - mosaico
 - mosaicoWithFsTemplate
+- grapesjs
 - ckeditor4
 - codeeditor
 
@@ -42,6 +42,8 @@ defaultLanguage: en-US
 # Enabled languages
 enabledLanguages:
 - en-US
+- es-ES
+- pt-BR
 - fk-FK
 
 # Inject custom scripts in subscription/layout.mjml.hbs
@@ -72,6 +74,7 @@ redis:
 log:
   # silly|verbose|info|http|warn|error|silent
   level: info
+  sendStacktracesToClient: false
 
 www:
   # HTTP port to listen on for trusted requests (logged-in users)
@@ -145,7 +148,7 @@ ldap:
   bindUser: name@company.net
   bindPassword: mySecretPassword
 
-postfixbounce:
+postfixBounce:
   # Enable to allow writing Postfix bounce log to Mailtrain listener
   # If enabled, tail mail.log to Mailtrain with the following command:
   #     tail -f -n +0 /var/log/mail.log | nc localhost 5699 -
@@ -174,6 +177,14 @@ mosaico:
   # Inject custom scripts
   # customscripts:
   # - /mosaico/custom/my-mosaico-plugin.js
+  fileCache:
+    blockThumbnails:
+      maxSize: 100 # megabytes
+      pruneInterval: 60 # seconds
+    images:
+      maxSize: 1024 # megabytes
+      pruneInterval: 60 # seconds
+
 
 grapesjs:
 # Installed templates
@@ -217,6 +228,8 @@ builtinZoneMTA:
   redis: redis://localhost:6379/2
   log:
     level: warn
+  processes: 2
+  connections: 5
 
 seleniumWebDriver:
   browser: phantomjs
@@ -225,11 +238,16 @@ seleniumWebDriver:
 roles:
   global:
     master:
-      name: Master
+      name: Global Master
       admin: true
       description: All permissions
-      permissions: [rebuildPermissions, createJavascriptWithROAccess, manageBlacklist, manageSettings, setupAutomation]
+      permissions: [rebuildPermissions, createJavascriptWithROAccess, displayManageUsers, manageBlacklist, manageSettings, setupAutomation]
       rootNamespaceRole: master
+    campaignsAdmin:
+      name: Campaigns Admin
+      description: Under the namespace in which the user is located, the user has all permissions for managing lists, templates and campaigns and the permission to send to send configurations.
+      permissions: [setupAutomation]
+      ownNamespaceRole: campaignsAdmin
     nobody:
       name: None
       description: No permissions
@@ -251,17 +269,49 @@ roles:
         mosaicoTemplate: [view, edit, delete, share, viewFiles, manageFiles]
         namespace: [view, edit, delete, share, createNamespace, createList, createCustomForm, createReport, createReportTemplate, createTemplate, createMosaicoTemplate, createSendConfiguration, createCampaign, manageUsers]
 
+    campaignsAdmin:
+      name: Campaigns Admin
+      description: In the respective namespace, the user has all permissions for managing lists, templates and campaigns and the permission to send to send configurations.
+      permissions: [view, edit, delete, share, createNamespace, createList, createCustomForm, createReport, createTemplate, createMosaicoTemplate, createCampaign]
+      children:
+        sendConfiguration: [viewPublic, sendWithoutOverrides, sendWithAllowedOverrides]
+        list: [view, edit, delete, share, viewFields, manageFields, viewSubscriptions, manageSubscriptions, viewSegments, manageSegments, viewImports, manageImports]
+        customForm: [view, edit, delete, share]
+        campaign: [view, edit, delete, share, viewFiles, manageFiles, viewAttachments, manageAttachments, viewTriggers, manageTriggers, send, viewStats, fetchRss]
+        template: [view, edit, delete, share, viewFiles, manageFiles]
+        report: [view, edit, delete, share, execute, viewContent, viewOutput]
+        reportTemplate: [view, share, execute]
+        mosaicoTemplate: [view, edit, delete, share, viewFiles, manageFiles]
+        namespace: [view, edit, delete, share, createNamespace, createList, createCustomForm, createReport, createTemplate, createMosaicoTemplate, createCampaign]
+
+    campaignsCreator:
+      name: Campaigns Creator
+      description: In the respective namespace, the user has all permissions for templates and campaigns.
+      permissions: [view, createTemplate, createCampaign]
+      children:
+        sendConfiguration: [viewPublic]
+        campaign: [view, edit, delete, share, viewFiles, manageFiles, viewAttachments, manageAttachments, viewTriggers, manageTriggers, fetchRss]
+        template: [view, edit, delete, share, viewFiles, manageFiles]
+
   sendConfiguration:
     master:
       name: Master
       description: All permissions
       permissions: [viewPublic, viewPrivate, edit, delete, share, sendWithoutOverrides, sendWithAllowedOverrides, sendWithAnyOverrides]
+    campaignsCreator:
+      name: Campaigns Creator
+      description: The user can only use the send configuration in setting up a campaign. However, this gives no permission to send.
+      permissions: [viewPublic]
 
   list:
     master:
       name: Master
       description: All permissions
       permissions: [view, edit, delete, share, viewFields, manageFields, viewSubscriptions, manageSubscriptions, viewSegments, manageSegments, viewImports, manageImports]
+    campaignsCreator:
+      name: Campaigns Creator
+      description: The user can only use the list in setting up a campaign. However, this gives no permission to view subscriptions or to send to the list.
+      permissions: [view, viewFields, viewSegments]
 
   customForm:
     master:
@@ -274,6 +324,10 @@ roles:
       name: Master
       description: All permissions
       permissions: [view, edit, delete, share, viewFiles, manageFiles, viewAttachments, manageAttachments, viewTriggers, manageTriggers, send, viewStats, manageMessages, fetchRss]
+    campaignsCreator:
+      name: Campaigns Creator
+      description: The user can setup the campaign but cannot send it.
+      permissions: [view, edit, delete, share, viewFiles, manageFiles, viewAttachments, manageAttachments, viewTriggers, manageTriggers, fetchRss]
     rssTrigger:
       name: RSS Campaign Trigger
       description: Allows triggering a fetch of an RSS campaign

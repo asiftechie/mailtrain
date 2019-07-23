@@ -1,14 +1,7 @@
 'use strict';
 
-import React
-    from "react";
-import {
-    ACEEditor,
-    AlignedRow,
-    Dropdown,
-    StaticField,
-    TableSelect
-} from "../lib/form";
+import React from "react";
+import {ACEEditor, AlignedRow, Dropdown, StaticField, TableSelect} from "../lib/form";
 import 'brace/mode/text';
 import 'brace/mode/html';
 
@@ -17,36 +10,17 @@ import {CKEditorHost} from "../lib/sandboxed-ckeditor";
 import {GrapesJSHost} from "../lib/sandboxed-grapesjs";
 import {CodeEditorHost} from "../lib/sandboxed-codeeditor";
 
-import {
-    getGrapesJSSourceTypeOptions,
-    GrapesJSSourceType
-} from "../lib/sandboxed-grapesjs-shared";
+import {getGrapesJSSourceTypeOptions, GrapesJSSourceType} from "../lib/sandboxed-grapesjs-shared";
 
-import {
-    CodeEditorSourceType,
-    getCodeEditorSourceTypeOptions
-} from "../lib/sandboxed-codeeditor-shared";
+import {CodeEditorSourceType, getCodeEditorSourceTypeOptions} from "../lib/sandboxed-codeeditor-shared";
 
 import {getTemplateTypes as getMosaicoTemplateTypes} from './mosaico/helpers';
-import {
-    getPublicUrl,
-    getSandboxUrl,
-    getTrustedUrl
-} from "../lib/urls";
-import mailtrainConfig
-    from 'mailtrainConfig';
-import {
-    ActionLink,
-    Button
-} from "../lib/bootstrap-components";
+import {getSandboxUrl} from "../lib/urls";
+import mailtrainConfig from 'mailtrainConfig';
+import {ActionLink, Button} from "../lib/bootstrap-components";
 import {Trans} from "react-i18next";
 
-import styles
-    from "../lib/styles.scss";
-import {
-    base,
-    unbase
-} from "../../../shared/templates";
+import styles from "../lib/styles.scss";
 
 export const ResourceType = {
     TEMPLATE: 'template',
@@ -114,7 +88,7 @@ export function getTemplateTypes(t, prefix = '', entityTypeId = ResourceType.TEM
             <AlignedRow
                 label={t('templateContentHtml')}>
                 <MosaicoHost
-                    ref={node => owner.editorNode = node}
+                    ref={owner.editorNodeRefHandler}
                     entity={owner.props.entity}
                     initialModel={owner.getFormValue(prefix + 'mosaicoData').model}
                     initialMetadata={owner.getFormValue(prefix + 'mosaicoData').metadata}
@@ -124,18 +98,29 @@ export function getTemplateTypes(t, prefix = '', entityTypeId = ResourceType.TEM
                     onSave={::owner.save}
                     canSave={owner.isFormWithoutErrors()}
                     onTestSend={::owner.showTestSendModal}
+                    onShowExport={::owner.showExportModal}
                     onFullscreenAsync={::owner.setElementInFullscreen}
                 />
             </AlignedRow>,
         exportHTMLEditorData: async owner => {
+            const state = await owner.editorNode.exportState();
+            // If the sandbox is still loading, the exportState returns null.
+            if (state) {
+                return {
+                    [prefix + 'html']: state.html,
+                    [prefix + 'mosaicoData']: {
+                        metadata: state.metadata,
+                        model: state.model
+                    }
+                };
+            } else {
+                return null;
+            }
+        },
+        exportContent: async (owner, contentType) => {
             const {html, metadata, model} = await owner.editorNode.exportState();
-            return {
-                [prefix + 'html']: html,
-                [prefix + 'mosaicoData']: {
-                    metadata,
-                    model
-                }
-            };
+            if (contentType === 'html') return html;
+            return null;
         },
         initData: () => ({
             [prefix + 'mosaicoTemplate']: '',
@@ -189,28 +174,39 @@ export function getTemplateTypes(t, prefix = '', entityTypeId = ResourceType.TEM
             <AlignedRow
                 label={t('templateContentHtml')}>
                 <MosaicoHost
-                    ref={node => owner.editorNode = node}
+                    ref={owner.editorNodeRefHandler}
                     entity={owner.props.entity}
                     initialModel={owner.getFormValue(prefix + 'mosaicoData').model}
                     initialMetadata={owner.getFormValue(prefix + 'mosaicoData').metadata}
-                    templatePath={getSandboxUrl(`static/mosaico/templates/${owner.getFormValue(prefix + 'mosaicoFsTemplate')}/index.html`)}
+                    templatePath={getSandboxUrl(`static/mosaico/templates/${owner.getFormValue(prefix + 'mosaicoFsTemplate')}/template-${owner.getFormValue(prefix + 'mosaicoFsTemplate')}.html`)}
                     entityTypeId={entityTypeId}
                     title={t('mosaicoTemplateDesigner')}
                     onSave={::owner.save}
                     canSave={owner.isFormWithoutErrors()}
                     onTestSend={::owner.showTestSendModal}
+                    onShowExport={::owner.showExportModal}
                     onFullscreenAsync={::owner.setElementInFullscreen}
                 />
             </AlignedRow>,
         exportHTMLEditorData: async owner => {
+            const state = await owner.editorNode.exportState();
+            // If the sandbox is still loading, the exportState returns null.
+            if (state) {
+                return {
+                    [prefix + 'html']: state.html,
+                    [prefix + 'mosaicoData']: {
+                        metadata: state.metadata,
+                        model: state.model
+                    }
+                };
+            } else {
+                return null;
+            }
+        },
+        exportContent: async (owner, contentType) => {
             const {html, metadata, model} = await owner.editorNode.exportState();
-            return {
-                [prefix + 'html']: html,
-                [prefix + 'mosaicoData']: {
-                    metadata,
-                    model
-                }
-            };
+            if (contentType === 'html') return html;
+            return null;
         },
         initData: () => ({
             [prefix + 'mosaicoFsTemplate']: mailtrainConfig.mosaico.fsTemplates[0].key,
@@ -241,11 +237,8 @@ export function getTemplateTypes(t, prefix = '', entityTypeId = ResourceType.TEM
 
     const grapesJSSourceTypes = getGrapesJSSourceTypeOptions(t);
     const grapesJSSourceTypeLabels = {};
-    for ({
-        key,
-        label
-    } of grapesJSSourceTypes) {
-        grapesJSSourceTypeLabels[key] = label;
+    for (const srcType of grapesJSSourceTypes) {
+        grapesJSSourceTypeLabels[srcType.key] = srcType.label;
     }
 
     templateTypes.grapesjs = {
@@ -255,11 +248,11 @@ export function getTemplateTypes(t, prefix = '', entityTypeId = ResourceType.TEM
                 return <StaticField
                     id={prefix + 'grapesJSSourceType'}
                     className={styles.formDisabled}
-                    label={t('type')}>{grapesJSSourceTypeLabels[owner.getFormValue(prefix + 'grapesJSSourceType')]}</StaticField>;
+                    label={t('content')}>{grapesJSSourceTypeLabels[owner.getFormValue(prefix + 'grapesJSSourceType')]}</StaticField>;
             } else {
                 return <Dropdown
                     id={prefix + 'grapesJSSourceType'}
-                    label={t('type')}
+                    label={t('content')}
                     options={grapesJSSourceTypes}/>;
             }
         },
@@ -267,7 +260,7 @@ export function getTemplateTypes(t, prefix = '', entityTypeId = ResourceType.TEM
             <AlignedRow
                 label={t('templateContentHtml')}>
                 <GrapesJSHost
-                    ref={node => owner.editorNode = node}
+                    ref={owner.editorNodeRefHandler}
                     entity={owner.props.entity}
                     entityTypeId={entityTypeId}
                     initialSource={owner.getFormValue(prefix + 'grapesJSData').source}
@@ -277,18 +270,30 @@ export function getTemplateTypes(t, prefix = '', entityTypeId = ResourceType.TEM
                     onSave={::owner.save}
                     canSave={owner.isFormWithoutErrors()}
                     onTestSend={::owner.showTestSendModal}
+                    onShowExport={::owner.showExportModal}
                     onFullscreenAsync={::owner.setElementInFullscreen}
                 />
             </AlignedRow>,
         exportHTMLEditorData: async owner => {
+            const state = await owner.editorNode.exportState();
+            // If the sandbox is still loading, the exportState returns null.
+            if (state) {
+                return {
+                    [prefix + 'html']: state.html,
+                    [prefix + 'grapesJSData']: {
+                        source: state.source,
+                        style: state.style
+                    }
+                };
+            } else {
+                return null;
+            }
+        },
+        exportContent: async (owner, contentType) => {
             const {html, source, style} = await owner.editorNode.exportState();
-            return {
-                [prefix + 'html']: html,
-                [prefix + 'grapesJSData']: {
-                    source,
-                    style
-                }
-            };
+            if (contentType === 'html') return html;
+            if (contentType === 'mjml') return source;
+            return null;
         },
         initData: () => ({
             [prefix + 'grapesJSSourceType']: GrapesJSSourceType.MJML,
@@ -323,7 +328,7 @@ export function getTemplateTypes(t, prefix = '', entityTypeId = ResourceType.TEM
             <AlignedRow
                 label={t('templateContentHtml')}>
                 <CKEditorHost
-                    ref={node => owner.editorNode = node}
+                    ref={owner.editorNodeRefHandler}
                     entity={owner.props.entity}
                     initialSource={owner.getFormValue(prefix + 'ckeditor4Data').source}
                     entityTypeId={entityTypeId}
@@ -331,17 +336,28 @@ export function getTemplateTypes(t, prefix = '', entityTypeId = ResourceType.TEM
                     onSave={::owner.save}
                     canSave={owner.isFormWithoutErrors()}
                     onTestSend={::owner.showTestSendModal}
+                    onShowExport={::owner.showExportModal}
                     onFullscreenAsync={::owner.setElementInFullscreen}
                 />
             </AlignedRow>,
         exportHTMLEditorData: async owner => {
+            const state = await owner.editorNode.exportState();
+            // If the sandbox is still loading, the exportState returns null.
+            if (state) {
+                return {
+                    [prefix + 'html']: state.html,
+                    [prefix + 'ckeditor4Data']: {
+                        source: state.source
+                    }
+                };
+            } else {
+                return null;
+            }
+        },
+        exportContent: async (owner, contentType) => {
             const {html, source} = await owner.editorNode.exportState();
-            return {
-                [prefix + 'html']: html,
-                [prefix + 'ckeditor4Data']: {
-                    source
-                }
-            };
+            if (contentType === 'html') return html;
+            return null;
         },
         initData: () => ({
             [prefix + 'ckeditor4Data']: {}
@@ -367,11 +383,8 @@ export function getTemplateTypes(t, prefix = '', entityTypeId = ResourceType.TEM
 
     const codeEditorSourceTypes = getCodeEditorSourceTypeOptions(t);
     const codeEditorSourceTypeLabels = {};
-    for ({
-        key,
-        label
-    } of codeEditorSourceTypes) {
-        codeEditorSourceTypeLabels[key] = label;
+    for (const srcType of codeEditorSourceTypes) {
+        codeEditorSourceTypeLabels[srcType.key] = srcType.label;
     }
 
     templateTypes.codeeditor = {
@@ -394,7 +407,7 @@ export function getTemplateTypes(t, prefix = '', entityTypeId = ResourceType.TEM
             <AlignedRow
                 label={t('templateContentHtml')}>
                 <CodeEditorHost
-                    ref={node => owner.editorNode = node}
+                    ref={owner.editorNodeRefHandler}
                     entity={owner.props.entity}
                     entityTypeId={entityTypeId}
                     initialSource={owner.getFormValue(prefix + 'codeEditorData').source}
@@ -403,17 +416,28 @@ export function getTemplateTypes(t, prefix = '', entityTypeId = ResourceType.TEM
                     onSave={::owner.save}
                     canSave={owner.isFormWithoutErrors()}
                     onTestSend={::owner.showTestSendModal}
+                    onShowExport={::owner.showExportModal}
                     onFullscreenAsync={::owner.setElementInFullscreen}
                 />
             </AlignedRow>,
         exportHTMLEditorData: async owner => {
+            const state = await owner.editorNode.exportState();
+            // If the sandbox is still loading, the exportState returns null.
+            if (state) {
+                return {
+                    [prefix + 'html']: state.html,
+                    [prefix + 'codeEditorData']: {
+                        source: state.source
+                    }
+                };
+            } else {
+                return null;
+            }
+        },
+        exportContent: async (owner, contentType) => {
             const {html, source} = await owner.editorNode.exportState();
-            return {
-                [prefix + 'html']: html,
-                [prefix + 'codeEditorData']: {
-                    source
-                }
-            };
+            if (contentType === 'html') return html;
+            return null;
         },
         initData: () => ({
             [prefix + 'codeEditorSourceType']: CodeEditorSourceType.HTML,
@@ -607,7 +631,7 @@ export function getEditForm(owner, typeKey, prefix = '') {
                 height="400px"
                 mode="text"
                 label={t('templateContentPlainText')}
-                help={<Trans i18nKey="toExtractTheTextFromHtmlClickHerePlease">To extract the text from HTML click <ActionLink     onClickAsync={::owner.extractPlainText}>here</ActionLink>. Please note that your existing plaintext in the field above will be overwritten. This feature uses the <a     href="http://premailer.dialect.ca/api">Premailer     API</a>, a third party service. Their Terms of Service and Privacy Policy apply.</Trans>}
+                help={<Trans i18nKey="toExtractTheTextFromHtmlClickHerePlease">To extract the text from HTML click <ActionLink onClickAsync={::owner.extractPlainText}>here</ActionLink>. Please note that your existing plaintext in the field above will be overwritten. This feature uses the <a href="http://premailer.dialect.ca/api">Premailer API</a>, a third party service. Their Terms of Service and Privacy Policy apply.</Trans>}
             />
         </div>
     );

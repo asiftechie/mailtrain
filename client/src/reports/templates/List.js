@@ -2,33 +2,14 @@
 
 import React, {Component} from 'react';
 import {withTranslation} from '../../lib/i18n';
-import {
-    ButtonDropdown,
-    Icon
-} from '../../lib/bootstrap-components';
-import {
-    ButtonDropdownLink,
-    NavDropdown,
-    requiresAuthenticatedUser,
-    Title,
-    Toolbar,
-    withPageHelpers
-} from '../../lib/page';
-import {
-    withAsyncErrorHandler,
-    withErrorHandling
-} from '../../lib/error-handling';
+import {ButtonDropdown, Icon} from '../../lib/bootstrap-components';
+import {DropdownLink, requiresAuthenticatedUser, Title, Toolbar, withPageHelpers} from '../../lib/page';
+import {withAsyncErrorHandler, withErrorHandling} from '../../lib/error-handling';
 import {Table} from '../../lib/table';
-import moment
-    from 'moment';
-import mailtrainConfig
-    from 'mailtrainConfig';
+import moment from 'moment';
+import mailtrainConfig from 'mailtrainConfig';
 import {checkPermissions} from "../../lib/permissions";
-import {
-    tableAddDeleteButton,
-    tableRestActionDialogInit,
-    tableRestActionDialogRender
-} from "../../lib/modals";
+import {tableAddDeleteButton, tableRestActionDialogInit, tableRestActionDialogRender} from "../../lib/modals";
 import {withComponentMixins} from "../../lib/decorator-helpers";
 
 @withComponentMixins([
@@ -104,10 +85,10 @@ export default class List extends Component {
                 {this.state.createPermitted &&
                     <Toolbar>
                         <ButtonDropdown buttonClassName="btn-primary" menuClassName="dropdown-menu-right" label={t('createReportTemplate')}>
-                            <ButtonDropdownLink to="/reports/templates/create">{t('blank')}</ButtonDropdownLink>
-                            <ButtonDropdownLink to="/reports/templates/create/open-counts">{t('openCounts')}</ButtonDropdownLink>
-                            <ButtonDropdownLink to="/reports/templates/create/open-counts-csv">{t('openCountsAsCsv')}</ButtonDropdownLink>
-                            <ButtonDropdownLink to="/reports/templates/create/aggregated-open-counts">{t('aggregatedOpenCounts')}</ButtonDropdownLink>
+                            <DropdownLink to="/reports/templates/create">{t('blank')}</DropdownLink>
+                            <DropdownLink to="/reports/templates/create/open-counts">{t('openCounts')}</DropdownLink>
+                            <DropdownLink to="/reports/templates/create/open-counts-csv">{t('openCountsAsCsv')}</DropdownLink>
+                            <DropdownLink to="/reports/templates/create/aggregated-open-counts">{t('aggregatedOpenCounts')}</DropdownLink>
                         </ButtonDropdown>
                     </Toolbar>
                 }

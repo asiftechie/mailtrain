@@ -2,20 +2,15 @@
 
 import React, {Component} from 'react';
 import {withTranslation} from './i18n';
-import PropTypes
-    from 'prop-types';
-import {
-    withAsyncErrorHandler,
-    withErrorHandling
-} from './error-handling';
+import PropTypes from 'prop-types';
+import {withAsyncErrorHandler, withErrorHandling} from './error-handling';
 import {withComponentMixins} from "./decorator-helpers";
 
 @withComponentMixins([
     withTranslation,
     withErrorHandling
 ])
-
-class DismissibleAlert extends Component {
+export class DismissibleAlert extends Component {
     static propTypes = {
         severity: PropTypes.string.isRequired,
         onCloseAsync: PropTypes.func
@@ -40,7 +35,7 @@ class DismissibleAlert extends Component {
     }
 }
 
-class Icon extends Component {
+export class Icon extends Component {
     static propTypes = {
         icon: PropTypes.string.isRequired,
         family: PropTypes.string,
@@ -67,14 +62,16 @@ class Icon extends Component {
 @withComponentMixins([
     withErrorHandling
 ])
-class Button extends Component {
+export class Button extends Component {
     static propTypes = {
         onClickAsync: PropTypes.func,
         label: PropTypes.string,
         icon: PropTypes.string,
         iconTitle: PropTypes.string,
         className: PropTypes.string,
-        type: PropTypes.string
+        title: PropTypes.string,
+        type: PropTypes.string,
+        disabled: PropTypes.bool
     }
 
     @withAsyncErrorHandler
@@ -106,15 +103,14 @@ class Button extends Component {
         }
 
         return (
-            <button type={type} className={className} onClick={::this.onClick}>{icon}{iconSpacer}{props.label}</button>
+            <button type={type} className={className} onClick={::this.onClick} title={this.props.title} disabled={this.props.disabled}>{icon}{iconSpacer}{props.label}</button>
         );
     }
 }
 
-class ButtonDropdown extends Component {
+export class ButtonDropdown extends Component {
     static propTypes = {
         label: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
-        noCaret: PropTypes.bool,
         className: PropTypes.string,
         buttonClassName: PropTypes.string,
         menuClassName: PropTypes.string
@@ -144,10 +140,11 @@ class ButtonDropdown extends Component {
 @withComponentMixins([
     withErrorHandling
 ])
-class ActionLink extends Component {
+export class ActionLink extends Component {
     static propTypes = {
         onClickAsync: PropTypes.func,
-        className: PropTypes.string
+        className: PropTypes.string,
+        href: PropTypes.string
     }
 
     @withAsyncErrorHandler
@@ -164,7 +161,51 @@ class ActionLink extends Component {
         const props = this.props;
 
         return (
-            <a href="" className={props.className} onClick={::this.onClick}>{props.children}</a>
+            <a href={props.href || ''} className={props.className} onClick={::this.onClick}>{props.children}</a>
+        );
+    }
+}
+
+
+export class DropdownActionLink extends Component {
+    static propTypes = {
+        onClickAsync: PropTypes.func,
+        className: PropTypes.string,
+        disabled: PropTypes.bool
+    }
+
+    render() {
+        const props = this.props;
+
+        let clsName = "dropdown-item ";
+        if (props.disabled) {
+            clsName += "disabled ";
+        }
+
+        clsName += props.className;
+
+        return (
+            <ActionLink className={clsName} onClickAsync={props.onClickAsync}>{props.children}</ActionLink>
+        );
+    }
+}
+
+
+export class DropdownDivider extends Component {
+    static propTypes = {
+        className: PropTypes.string
+    }
+
+    render() {
+        const props = this.props;
+
+        let className = 'dropdown-divider';
+        if (props.className) {
+            className = className + ' ' + props.className;
+        }
+
+        return (
+            <div className={className}/>
         );
     }
 }
@@ -174,15 +215,11 @@ class ActionLink extends Component {
     withTranslation,
     withErrorHandling
 ])
-class ModalDialog extends Component {
+export class ModalDialog extends Component {
     constructor(props) {
         super(props);
 
         const t = props.t;
-
-        this.state = {
-            buttons: this.props.buttons || [ { label: t('close'), className: 'btn-secondary', onClickAsync: null } ]
-        };
     }
 
     static propTypes = {
@@ -244,7 +281,7 @@ class ModalDialog extends Component {
     }
 
     async onButtonClick(idx) {
-        const buttonSpec = this.state.buttons[idx];
+        const buttonSpec = this.props.buttons[idx];
         if (buttonSpec.onClickAsync) {
             await buttonSpec.onClickAsync(idx);
         }
@@ -254,11 +291,15 @@ class ModalDialog extends Component {
         const props = this.props;
         const t = props.t;
 
-        const buttons = [];
-        for (let idx = 0; idx < this.state.buttons.length; idx++) {
-            const buttonSpec = this.state.buttons[idx];
-            const button = <Button key={idx} label={buttonSpec.label} className={buttonSpec.className} onClickAsync={() => this.onButtonClick(idx)} />
-            buttons.push(button);
+        let buttons;
+
+        if (this.props.buttons) {
+            buttons = [];
+            for (let idx = 0; idx < this.props.buttons.length; idx++) {
+                const buttonSpec = this.props.buttons[idx];
+                const button = <Button key={idx} label={buttonSpec.label} className={buttonSpec.className} onClickAsync={async () => await this.onButtonClick(idx)} />
+                buttons.push(button);
+            }
         }
 
         return (
@@ -274,9 +315,11 @@ class ModalDialog extends Component {
                             <button type="button" className="close" aria-label={t('close')} onClick={::this.onClose}><span aria-hidden="true">&times;</span></button>
                         </div>
                         <div className="modal-body">{this.props.children}</div>
-                        <div className="modal-footer">
-                            {buttons}
-                        </div>
+                        {buttons &&
+                            <div className="modal-footer">
+                                {buttons}
+                            </div>
+                        }
                     </div>
                 </div>
             </div>
@@ -284,14 +327,3 @@ class ModalDialog extends Component {
     }
 }
 
-
-
-export {
-    Button,
-    ButtonDropdown,
-    DropdownMenuItem,
-    ActionLink,
-    DismissibleAlert,
-    ModalDialog,
-    Icon
-};

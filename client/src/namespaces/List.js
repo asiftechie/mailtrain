@@ -2,25 +2,12 @@
 
 import React, {Component} from 'react';
 import {withTranslation} from '../lib/i18n';
-import {
-    NavButton,
-    requiresAuthenticatedUser,
-    Title,
-    Toolbar,
-    withPageHelpers
-} from '../lib/page';
+import {LinkButton, requiresAuthenticatedUser, Title, Toolbar, withPageHelpers} from '../lib/page';
 import {TreeTable} from '../lib/tree';
-import {
-    withAsyncErrorHandler,
-    withErrorHandling
-} from '../lib/error-handling';
+import {withAsyncErrorHandler, withErrorHandling} from '../lib/error-handling';
 import {Icon} from "../lib/bootstrap-components";
 import {checkPermissions} from "../lib/permissions";
-import {
-    tableAddDeleteButton,
-    tableRestActionDialogInit,
-    tableRestActionDialogRender
-} from "../lib/modals";
+import {tableAddDeleteButton, tableRestActionDialogInit, tableRestActionDialogRender} from "../lib/modals";
 import {getGlobalNamespaceId} from "../../../shared/namespaces";
 import {withComponentMixins} from "../lib/decorator-helpers";
 
@@ -89,7 +76,7 @@ export default class List extends Component {
                 {tableRestActionDialogRender(this)}
                 {this.state.createPermitted &&
                     <Toolbar>
-                        <NavButton linkTo="/namespaces/create" className="btn-primary" icon="plus" label={t('createNamespace')}/>
+                        <LinkButton to="/namespaces/create" className="btn-primary" icon="plus" label={t('createNamespace')}/>
                     </Toolbar>
                 }
 

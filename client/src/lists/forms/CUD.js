@@ -1,16 +1,10 @@
 'use strict';
 
 import React, {Component} from 'react';
-import PropTypes
-    from 'prop-types';
+import PropTypes from 'prop-types';
 import {Trans} from 'react-i18next';
 import {withTranslation} from '../../lib/i18n';
-import {
-    NavButton,
-    requiresAuthenticatedUser,
-    Title,
-    withPageHelpers
-} from '../../lib/page';
+import {LinkButton, requiresAuthenticatedUser, Title, withPageHelpers} from '../../lib/page';
 import {
     ACEEditor,
     AlignedRow,
@@ -18,35 +12,24 @@ import {
     ButtonRow,
     Dropdown,
     Fieldset,
+    filterData,
     Form,
     FormSendMethod,
     InputField,
     TableSelect,
     TextArea,
-    withForm
+    withForm,
+    withFormErrorHandlers
 } from '../../lib/form';
 import {withErrorHandling} from '../../lib/error-handling';
-import {
-    NamespaceSelect,
-    validateNamespace
-} from '../../lib/namespace';
+import {NamespaceSelect, validateNamespace} from '../../lib/namespace';
 import {DeleteModalDialog} from "../../lib/modals";
-import mailtrainConfig
-    from 'mailtrainConfig';
-import {
-    getTrustedUrl,
-    getUrl
-} from "../../lib/urls";
-import {
-    ActionLink,
-    Icon
-} from "../../lib/bootstrap-components";
-import styles
-    from "../../lib/styles.scss";
-import formsStyles
-    from "./styles.scss";
-import axios
-    from "../../lib/axios";
+import mailtrainConfig from 'mailtrainConfig';
+import {getTrustedUrl, getUrl} from "../../lib/urls";
+import {ActionLink, Icon} from "../../lib/bootstrap-components";
+import styles from "../../lib/styles.scss";
+import formsStyles from "./styles.scss";
+import axios from "../../lib/axios";
 import {withComponentMixins} from "../../lib/decorator-helpers";
 
 @withComponentMixins([
@@ -98,10 +81,8 @@ export default class CUD extends Component {
                 changed: this.serverValidatedFields
             },
             onChange: {
-                previewList: () => {
-                    this.setState({
-                        previewContents: null
-                    });
+                previewList: (newState, key, oldValue, newValue) => {
+                    newState.formState.setIn(['data', 'previewContents', 'value'], null);
                 }
             }
         });
@@ -302,20 +283,48 @@ export default class CUD extends Component {
     }
 
 
-    componentDidMount() {
-        function supplyDefaults(data) {
-            for (const key in mailtrainConfig.defaultCustomFormValues) {
-                if (!data[key]) {
-                    data[key] = mailtrainConfig.defaultCustomFormValues[key];
-                }
+    supplyDefaults(data) {
+        for (const key in mailtrainConfig.defaultCustomFormValues) {
+            if (!data[key]) {
+                data[key] = mailtrainConfig.defaultCustomFormValues[key];
             }
         }
+    }
 
+    getFormValuesMutator(data, originalData) {
+        this.supplyDefaults(data);
+        data.selectedTemplate = (originalData && originalData.selectedTemplate) || 'layout';
+    }
+
+    submitFormValuesMutator(data) {
+        return filterData(data, ['name', 'description', 'layout', 'form_input_style', 'namespace',
+            'web_subscribe',
+            'web_confirm_subscription_notice',
+            'mail_confirm_subscription_html',
+            'mail_confirm_subscription_text',
+            'mail_already_subscribed_html',
+            'mail_already_subscribed_text',
+            'web_subscribed_notice',
+            'mail_subscription_confirmed_html',
+            'mail_subscription_confirmed_text',
+            'web_manage',
+            'web_manage_address',
+            'web_updated_notice',
+            'web_unsubscribe',
+            'web_confirm_unsubscription_notice',
+            'mail_confirm_unsubscription_html',
+            'mail_confirm_unsubscription_text',
+            'mail_confirm_address_change_html',
+            'mail_confirm_address_change_text',
+            'web_unsubscribed_notice',
+            'mail_unsubscription_confirmed_html',
+            'mail_unsubscription_confirmed_text', 'web_manual_unsubscribe_notice', 'web_privacy_policy_notice'
+        ]);
+    }
+
+    componentDidMount() {
         if (this.props.entity) {
-            this.getFormValuesFromEntity(this.props.entity, data => {
-                data.selectedTemplate = 'layout';
-                supplyDefaults(data);
-            });
+            this.getFormValuesFromEntity(this.props.entity);
 
         } else {
             const data = {
@@ -324,7 +333,7 @@ export default class CUD extends Component {
                 selectedTemplate: 'layout',
                 namespace: mailtrainConfig.user.namespace
             };
-            supplyDefaults(data);
+            this.supplyDefaults(data);
 
             this.populateFormValues(data);
         }
@@ -370,7 +379,8 @@ export default class CUD extends Component {
         }
     }
 
-    async submitHandler() {
+    @withFormErrorHandlers
+    async submitHandler(submitAndLeave) {
         const t = this.props.t;
 
         let sendMethod, url;
@@ -385,13 +395,24 @@ export default class CUD extends Component {
         this.disableForm();
         this.setFormStatusMessage('info', t('saving'));
 
-        const submitSuccessful = await this.validateAndSendFormValuesToURL(sendMethod, url, data => {
-            delete data.selectedTemplate;
-            delete data.previewList;
-        });
+        const submitResult = await this.validateAndSendFormValuesToURL(sendMethod, url);
 
-        if (submitSuccessful) {
-            this.navigateToWithFlashMessage('/lists/forms', 'success', t('formsSaved'));
+        if (submitResult) {
+            if (this.props.entity) {
+                if (submitAndLeave) {
+                    this.navigateToWithFlashMessage('/lists/forms', 'success', t('customFormsUpdated'));
+                } else {
+                    await this.getFormValuesFromURL(`rest/forms/${this.props.entity.id}`);
+                    this.enableForm();
+                    this.setFormStatusMessage('success', t('customFormsUpdated'));
+                }
+            } else {
+                if (submitAndLeave) {
+                    this.navigateToWithFlashMessage('/lists/forms', 'success', t('customFormsCreated'));
+                } else {
+                    this.navigateToWithFlashMessage(`/lists/forms/${submitResult}/edit`, 'success', t('customFormsCreated'));
+                }
+            }
         } else {
             this.enableForm();
             this.setFormStatusMessage('warning', t('thereAreErrorsInTheFormPleaseFixThemAnd'));
@@ -410,6 +431,7 @@ export default class CUD extends Component {
         const response = await axios.post(getUrl('rest/forms-preview'), data);
 
         this.setState({
+            previewKey: formKey,
             previewContents: response.data.content,
             previewLabel: this.templateSettings[formKey].label
         });
@@ -504,10 +526,15 @@ export default class CUD extends Component {
                                 {this.state.previewContents &&
                                 <div className={this.state.previewFullscreen ? formsStyles.editorFullscreen : formsStyles.editor}>
                                     <div className={formsStyles.navbar}>
-                                        {this.state.fullscreen && <img className={formsStyles.logo} src={getTrustedUrl('static/mailtrain-notext.png')}/>}
-                                        <div className={formsStyles.title}>{t('formPreview') + ' ' + this.state.previewLabel}</div>
-                                        <a className={formsStyles.btn} onClick={() => this.setState({previewContents: null, previewFullscreen: false})}><Icon icon="window-close"/></a>
-                                        <a className={formsStyles.btn} onClick={() => this.setState({previewFullscreen: !this.state.previewFullscreen})}><Icon icon="window-maximize"/></a>
+                                        <div className={formsStyles.navbarLeft}>
+                                            {this.state.fullscreen && <img className={formsStyles.logo} src={getTrustedUrl('static/mailtrain-notext.png')}/>}
+                                            <div className={formsStyles.title}>{t('formPreview') + ' ' + this.state.previewLabel}</div>
+                                        </div>
+                                        <div className={formsStyles.navbarRight}>
+                                            <a className={formsStyles.btn} onClick={() => this.preview(this.state.previewKey)} title={t('refresh')}><Icon icon="sync-alt"/></a>
+                                            <a className={formsStyles.btn} onClick={() => this.setState({previewFullscreen: !this.state.previewFullscreen})} title={t('maximizeEditor')}><Icon icon="window-maximize"/></a>
+                                            <a className={formsStyles.btn} onClick={() => this.setState({previewContents: null, previewFullscreen: false})} title={t('closePreview')}><Icon icon="window-close"/></a>
+                                        </div>
                                     </div>
                                     <iframe className={formsStyles.host} src={"data:text/html;charset=utf-8," + encodeURIComponent(this.state.previewContents)}></iframe>
                                 </div>
@@ -525,7 +552,8 @@ export default class CUD extends Component {
 
                     <ButtonRow>
                         <Button type="submit" className="btn-primary" icon="check" label={t('save')}/>
-                        {canDelete && <NavButton className="btn-danger" icon="trash-alt" label={t('delete')} linkTo={`/lists/forms/${this.props.entity.id}/delete`}/>}
+                        <Button type="submit" className="btn-primary" icon="check" label={t('saveAndLeave')} onClickAsync={async () => await this.submitHandler(true)}/>
+                        {canDelete && <LinkButton className="btn-danger" icon="trash-alt" label={t('delete')} to={`/lists/forms/${this.props.entity.id}/delete`}/>}
                     </ButtonRow>
                 </Form>
             </div>

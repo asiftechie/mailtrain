@@ -1,44 +1,19 @@
 'use strict';
 
 import React, {Component} from "react";
-import {withTranslation} from './i18n';
-import PropTypes
-    from "prop-types";
+import i18n, {withTranslation} from './i18n';
+import PropTypes from "prop-types";
 import {withRouter} from "react-router";
-import {
-    BrowserRouter as Router,
-    Link,
-    Redirect,
-    Route,
-    Switch
-} from "react-router-dom";
-import {
-    withAsyncErrorHandler,
-    withErrorHandling
-} from "./error-handling";
-import interoperableErrors
-    from "../../../shared/interoperable-errors";
-import {
-    Button,
-    DismissibleAlert,
-    Icon
-} from "./bootstrap-components";
-import mailtrainConfig
-    from "mailtrainConfig";
-import styles
-    from "./styles.scss";
-import {
-    getRoutes,
-    needsResolve,
-    resolve,
-    SectionContentContext,
-    withPageHelpers
-} from "./page-common";
+import {BrowserRouter as Router, Link, Route, Switch} from "react-router-dom";
+import {withErrorHandling} from "./error-handling";
+import interoperableErrors from "../../../shared/interoperable-errors";
+import {ActionLink, Button, DismissibleAlert, DropdownActionLink, Icon} from "./bootstrap-components";
+import mailtrainConfig from "mailtrainConfig";
+import styles from "./styles.scss";
+import {getRoutes, renderRoute, Resolver, SectionContentContext, withPageHelpers} from "./page-common";
 import {getBaseDir} from "./urls";
-import {
-    createComponentMixin,
-    withComponentMixins
-} from "./decorator-helpers";
+import {createComponentMixin, withComponentMixins} from "./decorator-helpers";
+import {getLang} from "../../../shared/langs";
 
 export { withPageHelpers }
 
@@ -98,7 +73,7 @@ class Breadcrumb extends Component {
     }
 }
 
-class SecondaryNavBar extends Component {
+class TertiaryNavBar extends Component {
     static propTypes = {
         route: PropTypes.object.isRequired,
         params: PropTypes.object.isRequired,
@@ -167,7 +142,7 @@ class SecondaryNavBar extends Component {
         }
 
         if (renderedElems.length > 1) {
-            let className = styles.secondaryNav + ' nav nav-pills';
+            let className = styles.tertiaryNav + ' nav nav-pills';
             if (this.props.className) {
                 className += ' ' + this.props.className;
             }
@@ -179,94 +154,132 @@ class SecondaryNavBar extends Component {
     }
 }
 
+
+
+function getLoadingMessage(t) {
+    return (
+        <div className="container-fluid my-3">
+            {t('loading')}
+        </div>
+    );
+}
+
+function renderFrameWithContent(t, panelInFullScreen, showSidebar, primaryMenu, secondaryMenu, content) {
+    if (panelInFullScreen) {
+        return (
+            <div key="app" className="app panel-in-fullscreen">
+                <div key="appBody" className="app-body">
+                    <main key="main" className="main">
+                        {content}
+                    </main>
+                </div>
+            </div>
+        );
+
+    } else {
+        return (
+            <div key="app" className={"app " + (showSidebar ? 'sidebar-lg-show' : '')}>
+                <header key="appHeader" className="app-header">
+                    <nav className="navbar navbar-expand-lg navbar-dark bg-dark">
+                        {showSidebar &&
+                        <button className="navbar-toggler sidebar-toggler" data-toggle="sidebar-show" type="button">
+                            <span className="navbar-toggler-icon"/>
+                        </button>
+                        }
+
+                        <Link className="navbar-brand" to="/"><div><Icon icon="envelope"/> Mailtrain</div></Link>
+
+                        <button className="navbar-toggler" type="button" data-toggle="collapse" data-target="#mtMainNavbar" aria-controls="navbarColor01" aria-expanded="false" aria-label="Toggle navigation">
+                            <span className="navbar-toggler-icon"/>
+                        </button>
+
+                        <div className="collapse navbar-collapse" id="mtMainNavbar">
+                            {primaryMenu}
+                        </div>
+                    </nav>
+                </header>
+
+                <div key="appBody" className="app-body">
+                    {showSidebar &&
+                    <div key="sidebar" className="sidebar">
+                        {secondaryMenu}
+                    </div>
+                    }
+                    <main key="main" className="main">
+                        {content}
+                    </main>
+                </div>
+
+                <footer key="appFooter" className="app-footer">
+                    <div className="text-muted">&copy; 2018 <a href="https://mailtrain.org">Mailtrain.org</a>, <a href="mailto:info@mailtrain.org">info@mailtrain.org</a>. <a href="https://github.com/Mailtrain-org/mailtrain">{t('sourceOnGitHub')}</a></div>
+                </footer>
+            </div>
+        );
+    }
+}
+
+
 @withComponentMixins([
-    withTranslation,
-    withErrorHandling
+    withTranslation
 ])
-class RouteContent extends Component {
+class PanelRoute extends Component {
     constructor(props) {
         super(props);
-        this.state = {};
+        this.state = {
+            panelInFullScreen: props.route.panelInFullScreen
+        };
 
-        if (Object.keys(props.route.resolve).length === 0) {
-            this.state.resolved = {};
-        }
+        this.sidebarAnimationNodeListener = evt => {
+            if (evt.propertyName === 'left') {
+                this.forceUpdate();
+            }
+        };
+
+        this.setPanelInFullScreen = panelInFullScreen => this.setState({ panelInFullScreen });
     }
 
     static propTypes = {
         route: PropTypes.object.isRequired,
+        location: PropTypes.object.isRequired,
+        match: PropTypes.object.isRequired,
         flashMessage: PropTypes.object
     }
 
-    @withAsyncErrorHandler
-    async resolve(props) {
-        if (Object.keys(props.route.resolve).length === 0) {
-            this.setState({
-                resolved: {}
-            });
-
-        } else {
-            this.setState({
-                resolved: null
-            });
-
-            const resolved = await resolve(props.route, props.match);
-
-            if (!this.disregardResolve) { // This is to prevent the warning about setState on discarded component when we immediatelly redirect.
-                this.setState({
-                    resolved
-                });
-            }
+    registerSidebarAnimationListener() {
+        if (this.sidebarAnimationNode) {
+            this.sidebarAnimationNode.addEventListener("transitionend", this.sidebarAnimationNodeListener);
         }
     }
 
     componentDidMount() {
-        // noinspection JSIgnoredPromiseFromCall
-        this.resolve(this.props);
+        this.registerSidebarAnimationListener();
     }
 
-    componentDidUpdate() {
-    }
-
-    componentWillReceiveProps(nextProps) {
-        if (this.props.match.params !== nextProps.match.params && needsResolve(this.props.route, nextProps.route, this.props.match, nextProps.match)) {
-            // noinspection JSIgnoredPromiseFromCall
-            this.resolve(nextProps);
-        }
-    }
-
-    componentWillUnmount() {
-        this.disregardResolve = true; // This is to prevent the warning about setState on discarded component when we immediatelly redirect.
+    componentDidUpdate(prevProps) {
+        this.registerSidebarAnimationListener();
     }
 
     render() {
         const t = this.props.t;
         const route = this.props.route;
         const params = this.props.match.params;
-        const resolved = this.state.resolved;
 
-        if (!route.panelRender && !route.panelComponent && route.link) {
-            let link;
-            if (typeof route.link === 'function') {
-                link = route.link(params);
-            } else {
-                link = route.link;
-            }
+        const showSidebar = !!route.secondaryMenuComponent;
 
-            return <Redirect to={link}/>;
+        const panelInFullScreen = this.state.panelInFullScreen;
 
-        } else {
-            const primaryMenuProps = {
-                location: this.props.location
-            };
-
-            const primaryMenuComponent = React.createElement(route.primaryMenuComponent, primaryMenuProps);
+        const render = resolved => {
+            let primaryMenu = null;
+            let secondaryMenu = null;
+            let content = null;
 
             if (resolved) {
                 const compProps = {
                     match: this.props.match,
                     location: this.props.location,
-                    resolved
+                    resolved,
+                    setPanelInFullScreen: this.setPanelInFullScreen,
+                    panelInFullScreen: this.state.panelInFullScreen
                 };
 
                 let panel;
@@ -276,56 +289,132 @@ class RouteContent extends Component {
                     panel = route.panelRender(compProps);
                 }
 
-                return (
-                    <div>
-                        {primaryMenuComponent}
+                if (route.primaryMenuComponent) {
+                    primaryMenu = React.createElement(route.primaryMenuComponent, compProps);
+                }
 
-                        <div className={styles.breadcrumbAndSecondaryNavbar}>
-                            <Breadcrumb route={route} params={params} resolved={resolved}/>
-                            <SecondaryNavBar route={route} params={params} resolved={resolved}/>
-                        </div>
+                if (route.secondaryMenuComponent) {
+                    secondaryMenu = React.createElement(route.secondaryMenuComponent, compProps);
+                }
 
-                        <div className="container-fluid">
-                            {this.props.flashMessage}
-                            {panel}
-                        </div>
+                const panelContent = (
+                    <div key="panel" className="container-fluid">
+                        {this.props.flashMessage}
+                        {panel}
                     </div>
                 );
+
+                if (panelInFullScreen) {
+                    content = panelContent;
+                } else {
+                    content = (
+                        <>
+                            <div key="tertiaryNav" className="mt-breadcrumb-and-tertiary-navbar">
+                                <Breadcrumb route={route} params={params} resolved={resolved}/>
+                                <TertiaryNavBar route={route} params={params} resolved={resolved}/>
+                            </div>
+                            {panelContent}
+                        </>
+                    );
+                }
+
             } else {
-                return (
-                    <div>
-                        {primaryMenuComponent}
-                        <div className="container-fluid">
-                            {t('loading')}
-                        </div>
-                    </div>
-                );
+                content = getLoadingMessage(t);
             }
-        }
+
+            return renderFrameWithContent(t, panelInFullScreen, showSidebar, primaryMenu, secondaryMenu, content);
+        };
+
+
+        return <Resolver route={route} render={render} location={this.props.location} match={this.props.match}/>;
     }
 }
 
 
+export class BeforeUnloadListeners {
+    constructor() {
+        this.listeners = new Set();
+    }
+
+    register(listener) {
+        this.listeners.add(listener);
+    }
+
+    deregister(listener) {
+        this.listeners.delete(listener);
+    }
+
+    shouldUnloadBeCancelled() {
+        for (const lst of this.listeners) {
+            if (lst.handler()) return true;
+        }
+
+        return false;
+    }
+
+    async shouldUnloadBeCancelledAsync() {
+        for (const lst of this.listeners) {
+            if (await lst.handlerAsync()) return true;
+        }
+
+        return false;
+    }
+}
+
 @withRouter
 @withComponentMixins([
+    withTranslation,
     withErrorHandling
-])
+], ['onNavigationConfirmationDialog'])
 export class SectionContent extends Component {
     constructor(props) {
         super(props);
 
         this.state = {
-        }
+            flashMessageText: ''
+        };
 
         this.historyUnlisten = props.history.listen((location, action) => {
             // noinspection JSIgnoredPromiseFromCall
             this.closeFlashMessage();
-        })
+        });
+
+        this.beforeUnloadListeners = new BeforeUnloadListeners();
+        this.beforeUnloadHandler = ::this.onBeforeUnload;
+        this.historyUnblock = null;
     }
 
     static propTypes = {
         structure: PropTypes.object.isRequired,
         root: PropTypes.string.isRequired
+    }
+
+    onBeforeUnload(event) {
+        if (this.beforeUnloadListeners.shouldUnloadBeCancelled()) {
+            event.preventDefault();
+            event.returnValue = '';
+        }
+    }
+
+    onNavigationConfirmationDialog(message, callback) {
+        this.beforeUnloadListeners.shouldUnloadBeCancelledAsync().then(res => {
+            if (res) {
+                const allowTransition = window.confirm(message);
+                callback(allowTransition);
+            } else {
+                callback(true);
+            }
+        });
+    }
+
+    componentDidMount() {
+        window.addEventListener('beforeunload', this.beforeUnloadHandler);
+        this.historyUnblock = this.props.history.block('Changes you made may not be saved. Are you sure you want to leave this page?');
+    }
+
+    componentWillUnmount() {
+        window.removeEventListener('beforeunload', this.beforeUnloadHandler);
+        this.historyUnblock();
     }
 
     setFlashMessage(severity, text) {
@@ -350,14 +439,22 @@ export class SectionContent extends Component {
 
     ensureAuthenticated() {
         if (!mailtrainConfig.isAuthenticated) {
-            this.navigateTo('/account/login?next=' + encodeURIComponent(window.location.pathname));
+            this.navigateTo('/login?next=' + encodeURIComponent(window.location.pathname));
         }
+    }
+
+    registerBeforeUnloadHandlers(handlers) {
+        this.beforeUnloadListeners.register(handlers);
+    }
+
+    deregisterBeforeUnloadHandlers(handlers) {
+        this.beforeUnloadListeners.deregister(handlers);
     }
 
     errorHandler(error) {
         if (error instanceof interoperableErrors.NotLoggedInError) {
-            if (window.location.pathname !== '/account/login') { // There may be multiple async requests failing at the same time. So we take the pathname only from the first one.
-                this.navigateTo('/account/login?next=' + encodeURIComponent(window.location.pathname));
+            if (window.location.pathname !== '/login') { // There may be multiple async requests failing at the same time. So we take the pathname only from the first one.
+                this.navigateTo('/login?next=' + encodeURIComponent(window.location.pathname));
             }
         } else if (error.response && error.response.data && error.response.data.message) {
             console.error(error);
@@ -376,18 +473,28 @@ export class SectionContent extends Component {
     }
 
     renderRoute(route) {
-        let flashMessage;
-        if (this.state.flashMessageText) {
-            flashMessage = <DismissibleAlert severity={this.state.flashMessageSeverity} onCloseAsync={::this.closeFlashMessage}>{this.state.flashMessageText}</DismissibleAlert>;
-        }
+        const t = this.props.t;
 
-        const render = props => <RouteContent route={route} flashMessage={flashMessage} {...props}/>;
+        const render = props => {
+            let flashMessage;
+            if (this.state.flashMessageText) {
+                flashMessage = <DismissibleAlert severity={this.state.flashMessageSeverity} onCloseAsync={::this.closeFlashMessage}>{this.state.flashMessageText}</DismissibleAlert>;
+            }
 
-        return <Route key={route.path} exact path={route.path} render={render} />
+            return renderRoute(
+                route,
+                PanelRoute,
+                () => renderFrameWithContent(t,false, false, null, null, getLoadingMessage(this.props.t)),
+                flashMessage,
+                props
+            );
+        };
+
+        return <Route key={route.path} exact={route.exact} path={route.path} render={render} />
     }
 
     render() {
-        let routes = getRoutes('', {}, [], this.props.structure, [], null, null);
+        const routes = getRoutes(this.props.structure);
 
         return (
             <SectionContentContext.Provider value={this}>
@@ -403,11 +510,17 @@ export class SectionContent extends Component {
 export class Section extends Component {
     constructor(props) {
         super(props);
+        this.getUserConfirmationHandler = ::this.onGetUserConfirmation;
+        this.sectionContent = null;
     }
 
     static propTypes = {
         structure: PropTypes.oneOfType([PropTypes.object, PropTypes.func]).isRequired,
         root: PropTypes.string.isRequired
+    }
+
+    onGetUserConfirmation(message, callback) {
+        this.sectionContent.onNavigationConfirmationDialog(message, callback);
     }
 
     render() {
@@ -417,8 +530,8 @@ export class Section extends Component {
         }
 
         return (
-            <Router basename={getBaseDir()}>
-                <SectionContent root={this.props.root} structure={structure} />
+            <Router basename={getBaseDir()} getUserConfirmation={this.getUserConfirmationHandler}>
+                <SectionContent wrappedComponentRef={node => this.sectionContent = node} root={this.props.root} structure={structure} />
             </Router>
         );
     }
@@ -442,7 +555,7 @@ export class Toolbar extends Component {
     };
 
     render() {
-        let className = 'float-right ' + styles.buttonRow;
+        let className = styles.toolbar + ' ' + styles.buttonRow;
         if (this.props.className) {
             className += ' ' + this.props.className;
         }
@@ -455,24 +568,24 @@ export class Toolbar extends Component {
     }
 }
 
-export class NavButton extends Component {
+export class LinkButton extends Component {
     static propTypes = {
         label: PropTypes.string,
         icon: PropTypes.string,
         className: PropTypes.string,
-        linkTo: PropTypes.string
+        to: PropTypes.string
     };
 
     render() {
         const props = this.props;
 
         return (
-            <Link to={props.linkTo}><Button label={props.label} icon={props.icon} className={props.className}/></Link>
+            <Link to={props.to}><Button label={props.label} icon={props.icon} className={props.className}/></Link>
         );
     }
 }
 
-export class ButtonDropdownLink extends Component {
+export class DropdownLink extends Component {
     static propTypes = {
         to: PropTypes.string,
         className: PropTypes.string
@@ -491,6 +604,8 @@ export class ButtonDropdownLink extends Component {
 export class NavLink extends Component {
     static propTypes = {
         to: PropTypes.string,
+        icon: PropTypes.string,
+        iconFamily: PropTypes.string,
         className: PropTypes.string
     }
 
@@ -498,8 +613,38 @@ export class NavLink extends Component {
         const props = this.props;
 
         const clsName = "nav-item" + (props.className ? " " + props.className : "")
+
+        let icon;
+        if (props.icon) {
+            icon = <><Icon icon={props.icon} family={props.iconFamily}/>{' '}</>;
+        }
+
         return (
-            <li className={clsName}><Link to={props.to} className="nav-link">{props.children}</Link></li>
+            <li className={clsName}><Link to={props.to} className="nav-link">{icon}{props.children}</Link></li>
+        );
+    }
+}
+
+export class NavActionLink extends Component {
+    static propTypes = {
+        onClickAsync: PropTypes.func,
+        icon: PropTypes.string,
+        iconFamily: PropTypes.string,
+        className: PropTypes.string
+    }
+
+    render() {
+        const props = this.props;
+
+        const clsName = "nav-item" + (props.className ? " " + props.className : "")
+
+        let icon;
+        if (props.icon) {
+            icon = <><Icon icon={props.icon} family={props.iconFamily}/>{' '}</>;
+        }
+
+        return (
+            <li className={clsName}><ActionLink onClickAsync={this.props.onClickAsync} className="nav-link">{icon}{props.children}</ActionLink></li>
         );
     }
 }
@@ -537,21 +682,6 @@ export class NavDropdown extends Component {
     }
 }
 
-export class NavDropdownLink extends Component {
-    static propTypes = {
-        to: PropTypes.string
-    }
-
-    render() {
-        const props = this.props;
-
-        return (
-            <Link to={props.to} className="dropdown-item">{props.children}</Link>
-        );
-    }
-}
-
-
 
 export const requiresAuthenticatedUser = createComponentMixin([], [withPageHelpers], (TargetClass, InnerClass) => {
     class RequiresAuthenticatedUser extends React.Component {
@@ -565,5 +695,29 @@ export const requiresAuthenticatedUser = createComponentMixin([], [withPageHelpe
         }
     }
 
-    return RequiresAuthenticatedUser;
+    return {
+        cls: RequiresAuthenticatedUser
+    };
 });
+
+export function getLanguageChooser(t) {
+    const languageOptions = [];
+    for (const lng of mailtrainConfig.enabledLanguages) {
+        const langDesc = getLang(lng);
+        const label = langDesc.getLabel(t);
+
+        languageOptions.push(
+            <DropdownActionLink key={lng} onClickAsync={async () => i18n.changeLanguage(langDesc.longCode)}>{label}</DropdownActionLink>
+        )
+    }
+
+    const currentLngCode = getLang(i18n.language).getShortLabel(t);
+
+    const languageChooser = (
+        <NavDropdown menuClassName="dropdown-menu-right" label={currentLngCode}>
+            {languageOptions}
+        </NavDropdown>
+    );
+
+    return languageChooser;
+}

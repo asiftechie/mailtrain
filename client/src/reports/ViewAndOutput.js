@@ -2,24 +2,13 @@
 
 import React, {Component} from 'react';
 import {withTranslation} from '../lib/i18n';
-import {
-    requiresAuthenticatedUser,
-    Title,
-    Toolbar,
-    withPageHelpers
-} from '../lib/page'
-import {
-    withAsyncErrorHandler,
-    withErrorHandling
-} from '../lib/error-handling';
-import axios
-    from '../lib/axios';
+import {requiresAuthenticatedUser, Title, Toolbar, withPageHelpers} from '../lib/page'
+import {withAsyncErrorHandler, withErrorHandling} from '../lib/error-handling';
+import axios from '../lib/axios';
 import {ReportState} from '../../../shared/reports';
 import {getUrl} from "../lib/urls";
 import {Button} from "../lib/bootstrap-components";
-import {Link} from "react-router-dom";
-import PropTypes
-    from "prop-types";
+import PropTypes from "prop-types";
 import {withComponentMixins} from "../lib/decorator-helpers";
 
 @withComponentMixins([
@@ -43,14 +32,16 @@ export default class ViewAndOutput extends Component {
         this.viewTypes = {
             view: {
                 url: 'rest/report-content',
-                getTitle: name => t('reportName', { name }),
+                getTitle: name => t('reportName-1', { name }),
                 loading: t('loadingReport'),
+                finishedStates: new Set([ReportState.FINISHED]),
                 getContent: content => <div dangerouslySetInnerHTML={{ __html: content }}/>
             },
             output: {
                 url: 'rest/report-output',
                 getTitle: name => t('outputForReportName', { name }),
                 loading: t('loadingReportOutput'),
+                finishedStates: new Set([ReportState.FINISHED, ReportState.FAILED]),
                 getContent: content => <pre>{content}</pre>
             }
         }
@@ -108,7 +99,7 @@ export default class ViewAndOutput extends Component {
         if (this.state.report) {
             let reportContent = null;
 
-            if (this.state.report.state === ReportState.FINISHED) {
+            if (viewType.finishedStates.has(this.state.report.state)) {
                 reportContent = viewType.getContent(this.state.content);
             } else if (this.state.report.state === ReportState.SCHEDULED || this.state.report.state === ReportState.PROCESSING) {
                 reportContent = <div className="alert alert-info" role="alert">{t('reportIsBeingGenerated')}</div>;

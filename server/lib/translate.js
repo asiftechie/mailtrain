@@ -13,6 +13,8 @@ function loadLanguage(longCode) {
 }
 
 loadLanguage('en-US');
+loadLanguage('es-ES');
+loadLanguage('pt-BR');
 resourcesCommon['fk-FK'] = convertToFake(resourcesCommon['en-US']);
 
 const resources = {};
@@ -72,4 +74,3 @@ module.exports.tLog = tLog;
 module.exports.tUI = tUI;
 module.exports.tMark = tMark;
 module.exports.getLangCodeFromExpressLocale = getLangCodeFromExpressLocale;
-

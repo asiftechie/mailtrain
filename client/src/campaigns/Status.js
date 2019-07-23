@@ -1,52 +1,20 @@
 'use strict';
 
 import React, {Component} from 'react';
-import PropTypes
-    from 'prop-types';
+import PropTypes from 'prop-types';
 import {withTranslation} from '../lib/i18n';
-import {
-    NavButton,
-    requiresAuthenticatedUser,
-    Title,
-    withPageHelpers
-} from '../lib/page';
-import {
-    AlignedRow,
-    ButtonRow,
-    CheckBox,
-    DatePicker,
-    Form,
-    InputField,
-    TableSelect,
-    withForm
-} from '../lib/form';
-import {
-    withAsyncErrorHandler,
-    withErrorHandling
-} from '../lib/error-handling';
+import {LinkButton, requiresAuthenticatedUser, Title, withPageHelpers} from '../lib/page';
+import {AlignedRow, ButtonRow, CheckBox, DatePicker, Form, InputField, TableSelect, withForm} from '../lib/form';
+import {withAsyncErrorHandler, withErrorHandling} from '../lib/error-handling';
 import {getCampaignLabels} from './helpers';
 import {Table} from "../lib/table";
-import {
-    Button,
-    Icon,
-    ModalDialog
-} from "../lib/bootstrap-components";
-import axios
-    from "../lib/axios";
-import {
-    getPublicUrl,
-    getUrl
-} from "../lib/urls";
-import interoperableErrors
-    from '../../../shared/interoperable-errors';
-import {
-    CampaignStatus,
-    CampaignType
-} from "../../../shared/campaigns";
-import moment
-    from 'moment';
-import campaignsStyles
-    from "./styles.scss";
+import {Button, Icon, ModalDialog} from "../lib/bootstrap-components";
+import axios from "../lib/axios";
+import {getPublicUrl, getUrl} from "../lib/urls";
+import interoperableErrors from '../../../shared/interoperable-errors';
+import {CampaignStatus, CampaignType} from "../../../shared/campaigns";
+import moment from 'moment';
+import campaignsStyles from "./styles.scss";
 import {withComponentMixins} from "../lib/decorator-helpers";
 
 
@@ -60,7 +28,9 @@ import {withComponentMixins} from "../lib/decorator-helpers";
 class TestUser extends Component {
     constructor(props) {
         super(props);
-        this.initForm();
+        this.initForm({
+            leaveConfirmation: false
+        });
     }
 
     static propTypes = {
@@ -126,7 +96,9 @@ class TestUser extends Component {
 class SendControls extends Component {
     constructor(props) {
         super(props);
-        this.initForm();
+        this.initForm({
+            leaveConfirmation: false
+        });
     }
 
     static propTypes = {
@@ -225,6 +197,18 @@ class SendControls extends Component {
         await this.refreshEntity();
     }
 
+    async confirmStart() {
+        const t = this.props.t;
+        this.actionDialog(
+            t('confirmLaunch'),
+            t('doYouWantToLaunchTheCampaign?'),
+            async () => {
+                await this.startAsync();
+                await this.refreshEntity();
+            }
+        );
+    }
+
     async resetAsync() {
         const t = this.props.t;
         this.actionDialog(
@@ -297,7 +281,7 @@ class SendControls extends Component {
                         {this.getFormValue('sendLater') &&
                             <div>
                                 <DatePicker id="date" label={t('date')} />
-                                <InputField id="time" label={t('time')} help={t('enter24hourTimeInFormatHhmmEg1348')}/>
+                                <InputField id="time" label={t('time')} help={t('enter24HourTimeInFormatHhmmEg1348')}/>
                                 {/* TODO: Timezone selector */}
                             </div>
                         }
@@ -306,9 +290,9 @@ class SendControls extends Component {
                         {this.getFormValue('sendLater') ?
                             <Button className="btn-primary" icon="send" label={(entity.scheduled ? t('rescheduleSend') : t('scheduleSend')) + subscrInfo} onClickAsync={::this.scheduleAsync}/>
                             :
-                            <Button className="btn-primary" icon="send" label={t('send') + subscrInfo} onClickAsync={::this.startAsync}/>
+                            <Button className="btn-primary" icon="send" label={t('send') + subscrInfo} onClickAsync={::this.confirmStart}/>
                         }
-                        {entity.status === CampaignStatus.PAUSED && <NavButton className="btn-secondary" icon="signal" label={t('viewStatistics')} linkTo={`/campaigns/${entity.id}/statistics`}/>}
+                        {entity.status === CampaignStatus.PAUSED && <LinkButton className="btn-secondary" icon="signal" label={t('viewStatistics')} to={`/campaigns/${entity.id}/statistics`}/>}
                     </ButtonRow>
                 </div>
             );
@@ -321,7 +305,7 @@ class SendControls extends Component {
                     </AlignedRow>
                     <ButtonRow>
                         <Button className="btn-primary" icon="stop" label={t('stop')} onClickAsync={::this.stopAsync}/>
-                        <NavButton className="btn-secondary" icon="signal" label={t('viewStatistics')} linkTo={`/campaigns/${entity.id}/statistics`}/>
+                        <LinkButton className="btn-secondary" icon="signal" label={t('viewStatistics')} to={`/campaigns/${entity.id}/statistics`}/>
                     </ButtonRow>
                 </div>
             );
@@ -335,9 +319,9 @@ class SendControls extends Component {
                         {t('allMessagesSent!HitContinueIfYouYouWant')}
                     </AlignedRow>
                     <ButtonRow>
-                        <Button className="btn-primary" icon="play" label={t('continue') + subscrInfo} onClickAsync={::this.startAsync}/>
+                        <Button className="btn-primary" icon="play" label={t('continue') + subscrInfo} onClickAsync={::this.confirmStart}/>
                         <Button className="btn-primary" icon="refresh" label={t('reset')} onClickAsync={::this.resetAsync}/>
-                        <NavButton className="btn-secondary" icon="signal" label={t('viewStatistics')} linkTo={`/campaigns/${entity.id}/statistics`}/>
+                        <LinkButton className="btn-secondary" icon="signal" label={t('viewStatistics')} to={`/campaigns/${entity.id}/statistics`}/>
                     </ButtonRow>
                 </div>
             );
@@ -443,10 +427,16 @@ export default class Status extends Component {
         let sendSettings;
         if (this.state.sendConfiguration) {
             sendSettings = [];
-
+            
             const addOverridable = (id, label) => {
-                sendSettings.push(<AlignedRow key={id} label={label}>{entity[id + '_override'] === null ? this.state.sendConfiguration[id] : entity[id + '_override']}</AlignedRow>);
+                if(this.state.sendConfiguration[id + '_overridable'] == 1 && entity[id + '_override'] != null){
+                    sendSettings.push(<AlignedRow key={id} label={label}>{entity[id + '_override']}</AlignedRow>);
+                }
+                else{
+                    sendSettings.push(<AlignedRow key={id} label={label}>{this.state.sendConfiguration[id]}</AlignedRow>);
+                }
             };
+
 
             addOverridable('from_name', t('fromName'));
             addOverridable('from_email', t('fromEmailAddress'));

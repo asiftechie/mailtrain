@@ -1,25 +1,14 @@
 'use strict';
 
 import React, {Component} from 'react';
-import PropTypes
-    from 'prop-types';
+import PropTypes from 'prop-types';
 import {withTranslation} from '../../lib/i18n';
-import {
-    NavButton,
-    requiresAuthenticatedUser,
-    Title,
-    Toolbar,
-    withPageHelpers
-} from '../../lib/page';
+import {LinkButton, requiresAuthenticatedUser, Title, Toolbar, withPageHelpers} from '../../lib/page';
 import {withErrorHandling} from '../../lib/error-handling';
 import {Table} from '../../lib/table';
 import {getFieldTypes} from './helpers';
 import {Icon} from "../../lib/bootstrap-components";
-import {
-    tableAddDeleteButton,
-    tableRestActionDialogInit,
-    tableRestActionDialogRender
-} from "../../lib/modals";
+import {tableAddDeleteButton, tableRestActionDialogInit, tableRestActionDialogRender} from "../../lib/modals";
 import {withComponentMixins} from "../../lib/decorator-helpers";
 
 @withComponentMixins([
@@ -78,7 +67,7 @@ export default class List extends Component {
                 {tableRestActionDialogRender(this)}
                 {this.props.list.permissions.includes('manageFields') &&
                     <Toolbar>
-                        <NavButton linkTo={`/lists/${this.props.list.id}/fields/create`} className="btn-primary" icon="plus" label={t('createField')}/>
+                        <LinkButton to={`/lists/${this.props.list.id}/fields/create`} className="btn-primary" icon="plus" label={t('createField')}/>
                     </Toolbar>
                 }
 

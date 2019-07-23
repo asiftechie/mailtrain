@@ -1,8 +1,6 @@
 'use strict';
 
 import React from "react";
-import PropTypes from 'prop-types';
-import {SectionContentContext} from "./page-common";
 import {createComponentMixin} from "./decorator-helpers";
 
 function handleError(that, error) {
@@ -49,7 +47,7 @@ export const withErrorHandling = createComponentMixin([{context: ParentErrorHand
         handleError(this, error);
     };
 
-    return TargetClass;
+    return {};
 });
 
 export function withAsyncErrorHandler(target, name, descriptor) {
@@ -66,3 +64,12 @@ export function withAsyncErrorHandler(target, name, descriptor) {
     return descriptor;
 }
 
+export function wrapWithAsyncErrorHandler(self, fn) {
+    return async function () {
+        try {
+            await fn.apply(this, arguments)
+        } catch (error) {
+            handleError(self, error);
+        }
+    };
+}

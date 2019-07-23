@@ -12,11 +12,11 @@
 
     <title>Mailtrain</title>
 
-    <script src="{{publicPath}}static/jquery-3.3.1.min.js"></script>
+    <script src="{{publicPath}}static-npm/jquery.min.js"></script>
 
     {{#if mailtrainConfig}}
         <script>
-            {{#if reactCsrfToken}}window.csfrToken = '{{reactCsrfToken}}';{{/if}}
+            {{#if reactCsrfToken}}window.csrfToken = '{{reactCsrfToken}}';{{/if}}
             window.mailtrainConfig = {{{mailtrainConfig}}};
         </script>
 

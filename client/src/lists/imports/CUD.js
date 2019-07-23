@@ -1,15 +1,9 @@
 'use strict';
 
 import React, {Component} from 'react';
-import PropTypes
-    from 'prop-types';
+import PropTypes from 'prop-types';
 import {withTranslation} from '../../lib/i18n';
-import {
-    NavButton,
-    requiresAuthenticatedUser,
-    Title,
-    withPageHelpers
-} from '../../lib/page';
+import {LinkButton, requiresAuthenticatedUser, Title, withPageHelpers} from '../../lib/page';
 import {
     AlignedRow,
     Button,
@@ -17,34 +11,24 @@ import {
     CheckBox,
     Dropdown,
     Fieldset,
+    filterData,
     Form,
     FormSendMethod,
     InputField,
     StaticField,
     TextArea,
-    withForm
+    withForm,
+    withFormErrorHandlers
 } from '../../lib/form';
-import {
-    withAsyncErrorHandler,
-    withErrorHandling
-} from '../../lib/error-handling';
+import {withAsyncErrorHandler, withErrorHandling} from '../../lib/error-handling';
 import {DeleteModalDialog} from "../../lib/modals";
 import {getImportLabels} from './helpers';
-import {
-    ImportSource,
-    inProgress,
-    MappingType,
-    prepInProgress
-} from '../../../../shared/imports';
-import axios
-    from "../../lib/axios";
+import {ImportSource, inProgress, MappingType, prepInProgress, prepFinished} from '../../../../shared/imports';
+import axios from "../../lib/axios";
 import {getUrl} from "../../lib/urls";
-import listStyles
-    from "../styles.scss";
-import styles
-    from "../../lib/styles.scss";
-import interoperableErrors
-    from "../../../../shared/interoperable-errors";
+import listStyles from "../styles.scss";
+import styles from "../../lib/styles.scss";
+import interoperableErrors from "../../../../shared/interoperable-errors";
 import {withComponentMixins} from "../../lib/decorator-helpers";
 
 
@@ -99,36 +83,125 @@ export default class CUD extends Component {
         entity: PropTypes.object
     }
 
-    initFromEntity(entity) {
-        this.getFormValuesFromEntity(entity, data => {
-            data.settings = data.settings || {};
-            const mapping = data.mapping || {};
+    getFormValuesMutator(data) {
+        data.settings = data.settings || {};
+        const mapping = data.mapping || {};
 
+        if (data.source === ImportSource.CSV_FILE) {
+            data.csvFileName = data.settings.csv.originalname;
+            data.csvDelimiter = data.settings.csv.delimiter;
+        }
+
+        const mappingSettings = mapping.settings || {};
+        data.mapping_settings_checkEmails = 'checkEmails' in mappingSettings ? !!mappingSettings.checkEmails : true;
+
+        const mappingFlds = mapping.fields || {};
+        for (const field of this.props.fieldsGrouped) {
+            if (field.column) {
+                const colMapping = mappingFlds[field.column] || {};
+                data['mapping_fields_' + field.column + '_column'] = colMapping.column || '';
+            } else {
+                for (const option of field.settings.options) {
+                    const col = field.groupedOptions[option.key].column;
+                    const colMapping = mappingFlds[col] || {};
+                    data['mapping_fields_' + col + '_column'] = colMapping.column || '';
+                }
+            }
+        }
+
+        const emailMapping = mappingFlds.email || {};
+        data.mapping_fields_email_column = emailMapping.column || '';
+    }
+
+    submitFormValuesMutator(data, isSubmit) {
+        const isEdit = !!this.props.entity;
+
+        data.source = Number.parseInt(data.source);
+        data.settings = {};
+
+        let formData, csvFileSelected = false;
+        if (isSubmit) {
+            formData = new FormData();
+
+        }
+
+        if (!isEdit) {
             if (data.source === ImportSource.CSV_FILE) {
-                data.csvFileName = data.settings.csv.originalname;
-                data.csvDelimiter = data.settings.csv.delimiter;
+                data.settings.csv = {};
+
+                // This test needs to be here because this function is also called by the form change detection mechanism
+                if (this.csvFile && this.csvFile.files && this.csvFile.files.length > 0) {
+                    if (isSubmit) {
+                        formData.append('csvFile', this.csvFile.files[0]);
+                    } else {
+                        csvFileSelected = true;
+                    }
+                }
+
+                data.settings.csv.delimiter = data.csvDelimiter.trim();
             }
 
-            const mappingSettings = mapping.settings || {};
-            data.mapping_settings_checkEmails = 'checkEmails' in mappingSettings ? !!mappingSettings.checkEmails : true;
+        } else {
+            data.mapping_type = Number.parseInt(data.mapping_type);
+            const mapping = {
+                fields: {},
+                settings: {}
+            };
 
-            const mappingFlds = mapping.fields || {};
-            for (const field of this.props.fieldsGrouped) {
-                if (field.column) {
-                    const colMapping = mappingFlds[field.column] || {};
-                    data['mapping_fields_' + field.column + '_column'] = colMapping.column || '';
-                } else {
-                    for (const option of field.settings.options) {
-                        const col = field.groupedOptions[option.key].column;
-                        const colMapping = mappingFlds[col] || {};
-                        data['mapping_fields_' + col + '_column'] = colMapping.column || '';
+            if (data.mapping_type === MappingType.BASIC_SUBSCRIBE) {
+                mapping.settings.checkEmails = data.mapping_settings_checkEmails;
+
+                for (const field of this.props.fieldsGrouped) {
+                    if (field.column) {
+                        const colMapping = data['mapping_fields_' + field.column + '_column'];
+                        if (colMapping) {
+                            mapping.fields[field.column] = {
+                                column: colMapping
+                            };
+                        }
+                    } else {
+                        for (const option of field.settings.options) {
+                            const col = field.groupedOptions[option.key].column;
+                            const colMapping = data['mapping_fields_' + col + '_column'];
+                            if (colMapping) {
+                                mapping.fields[col] = {
+                                    column: colMapping
+                                };
+                            }
+                        }
                     }
                 }
             }
 
-            const emailMapping = mappingFlds.email || {};
-            data.mapping_fields_email_column = emailMapping.column || '';
-        });
+            if (data.mapping_type === MappingType.BASIC_SUBSCRIBE || data.mapping_type === MappingType.BASIC_UNSUBSCRIBE) {
+                mapping.fields.email = {
+                    column: data.mapping_fields_email_column
+                };
+            }
+
+
+            data.mapping = mapping;
+        }
+
+        if (isSubmit) {
+            formData.append('entity', JSON.stringify(
+                filterData(data, ['name', 'description', 'source', 'settings', 'mapping_type', 'mapping'])
+            ));
+
+            return formData;
+
+        } else {
+            const filteredData = filterData(data, ['name', 'description', 'source', 'settings', 'mapping_type', 'mapping']);
+            if (csvFileSelected) {
+                filteredData.csvFileSelected = true;
+            }
+
+            return filteredData;
+        }
+    }
+
+    initFromEntity(entity) {
+        this.getFormValuesFromEntity(entity);
 
         if (inProgress(entity.status)) {
             this.refreshTimeoutId = setTimeout(this.refreshTimeoutHandler, 1000);
@@ -197,6 +270,7 @@ export default class CUD extends Component {
         await this.save();
     }
 
+    @withFormErrorHandlers
     async save(runAfterSave) {
         const t = this.props.t;
         const isEdit = !!this.props.entity;
@@ -215,86 +289,21 @@ export default class CUD extends Component {
             this.disableForm();
             this.setFormStatusMessage('info', t('saving'));
 
-            const submitResponse = await this.validateAndSendFormValuesToURL(sendMethod, url, data => {
-                data.source = Number.parseInt(data.source);
-                data.settings = {};
-
-                const formData = new FormData();
-                if (!isEdit) {
-                    if (data.source === ImportSource.CSV_FILE) {
-                        data.settings.csv = {};
-                        formData.append('csvFile', this.csvFile.files[0]);
-                        data.settings.csv.delimiter = data.csvDelimiter.trim();
-                    }
-
-                } else {
-                    data.mapping_type = Number.parseInt(data.mapping_type);
-                    const mapping = {
-                        fields: {},
-                        settings: {}
-                    };
-
-                    if (data.mapping_type === MappingType.BASIC_SUBSCRIBE) {
-                        mapping.settings.checkEmails = data.mapping_settings_checkEmails;
-
-                        for (const field of this.props.fieldsGrouped) {
-                            if (field.column) {
-                                const colMapping = data['mapping_fields_' + field.column + '_column'];
-                                if (colMapping) {
-                                    mapping.fields[field.column] = {
-                                        column: colMapping
-                                    };
-                                }
-                            } else {
-                                for (const option of field.settings.options) {
-                                    const col = field.groupedOptions[option.key].column;
-                                    const colMapping = data['mapping_fields_' + col + '_column'];
-                                    if (colMapping) {
-                                        mapping.fields[col] = {
-                                            column: colMapping
-                                        };
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if (data.mapping_type === MappingType.BASIC_SUBSCRIBE || data.mapping_type === MappingType.BASIC_UNSUBSCRIBE) {
-                        mapping.fields.email = {
-                            column: data.mapping_fields_email_column
-                        };
-                    }
-
-
-                    data.mapping = mapping;
-                }
-
-                for (const key in data) {
-                    if (key.startsWith('mapping_fields') || key.startsWith('mapping_settings')) {
-                        delete data[key];
-                    }
-                }
-
-                delete data.csvFile;
-                delete data.csvDelimiter;
-                delete data.sampleRow;
-
-                formData.append('entity', JSON.stringify(data));
-
-                return formData;
-            });
+            const submitResponse = await this.validateAndSendFormValuesToURL(sendMethod, url);
 
             if (submitResponse) {
                 if (!isEdit) {
                     this.navigateTo(`/lists/${this.props.list.id}/imports/${submitResponse}/edit`);
                 } else {
-                    try {
-                        await axios.post(getUrl(`rest/import-start/${this.props.list.id}/${this.props.entity.id}`));
-                    } catch (err) {
-                        if (err instanceof interoperableErrors.InvalidStateError) {
-                            // Just mask the fact that it's not possible to start anything and refresh instead.
-                        } else {
-                            throw err;
+                    if (runAfterSave) {
+                        try {
+                            await axios.post(getUrl(`rest/import-start/${this.props.list.id}/${this.props.entity.id}`));
+                        } catch (err) {
+                            if (err instanceof interoperableErrors.InvalidStateError) {
+                                // Just mask the fact that it's not possible to start anything and refresh instead.
+                            } else {
+                                throw err;
+                            }
                         }
                     }
 
@@ -416,8 +425,10 @@ export default class CUD extends Component {
         if (!isEdit) {
             saveButtons.push(<Button key="default" type="submit" className="btn-primary" icon="check" label={t('saveAndEditSettings')}/>);
         } else {
-            saveButtons.push(<Button key="default" type="submit" className="btn-primary" icon="check" label={t('save')}/>);
-            saveButtons.push(<Button key="saveAndRun" className="btn-primary" icon="check" label={t('saveAndRun')} onClickAsync={async () => await this.save(true)}/>);
+            if (prepFinished(status)) {
+                saveButtons.push(<Button key="default" type="submit" className="btn-primary" icon="check" label={t('save')}/>);
+                saveButtons.push(<Button key="saveAndRun" className="btn-primary" icon="check" label={t('saveAndRun')} onClickAsync={async () => await this.save(true)}/>);
+            }
         }
 
         return (
@@ -452,7 +463,7 @@ export default class CUD extends Component {
 
                     <ButtonRow>
                         {saveButtons}
-                        {isEdit && <NavButton className="btn-danger" icon="trash-alt" label={t('delete')} linkTo={`/lists/${this.props.list.id}/imports/${this.props.entity.id}/delete`}/>}
+                        {isEdit && <LinkButton className="btn-danger" icon="trash-alt" label={t('delete')} to={`/lists/${this.props.list.id}/imports/${this.props.entity.id}/delete`}/>}
                     </ButtonRow>
                 </Form>
             </div>

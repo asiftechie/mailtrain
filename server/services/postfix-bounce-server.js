@@ -6,6 +6,7 @@ const net = require('net');
 const campaigns = require('../models/campaigns');
 const contextHelpers = require('../lib/context-helpers');
 const { SubscriptionStatus } = require('../../shared/lists');
+const bluebird = require('bluebird');
 
 const seenIds = new Set();
 
@@ -33,7 +34,7 @@ async function readNextChunks() {
             try {
                 const match = /\bstatus=(bounced|sent)\b/.test(line) && line.match(/\bpostfix\/\w+\[\d+\]:\s*([^:]+).*?status=(\w+)/);
                 if (match) {
-                    let queueId = match[1];
+                    const queueId = match[1];
                     let queued = '';
                     let queuedAs = '';
 
@@ -41,7 +42,7 @@ async function readNextChunks() {
                         seenIds.add(queueId);
 
                         // Losacno: Check for local requeue
-                        let status = match[2];
+                        const status = match[2];
                         log.verbose('POSTFIXBOUNCE', 'Checking message %s for local requeue (status: %s)', queueId, status);
                         if (status === 'sent') {
                             // Save new queueId to update message's previous queueId (thanks @mfechner )
@@ -82,8 +83,8 @@ async function readNextChunks() {
     }
 }
 
-module.exports = callback => {
-    if (!config.postfixbounce.enabled) {
+function start(callback) {
+    if (!config.postfixBounce.enabled) {
         return setImmediate(callback);
     }
 
@@ -94,7 +95,7 @@ module.exports = callback => {
     });
 
     server.on('error', err => {
-        const port = config.postfixbounce.port;
+        const port = config.postfixBounce.port;
         const bind = typeof port === 'string' ? 'Pipe ' + port : 'Port ' + port;
 
         switch (err.code) {
@@ -114,12 +115,15 @@ module.exports = callback => {
         }
     });
 
-    server.listen(config.postfixbounce.port, config.postfixbounce.host, () => {
+    server.listen(config.postfixBounce.port, config.postfixBounce.host, () => {
         if (started) {
             return server.close();
         }
         started = true;
-        log.info('POSTFIXBOUNCE', 'Server listening on port %s', config.postfixbounce.port);
+        log.info('POSTFIXBOUNCE', 'Server listening on port %s', config.postfixBounce.port);
         setImmediate(callback);
     });
-};
+}
+
+module.exports.start = bluebird.promisify(start);
+
